@@ -36,3 +36,5 @@ from ..fluid.io import DataLoader
 from ..fluid.dataloader import Dataset, IterableDataset, BatchSampler, get_worker_info, \
         TensorDataset, Sampler, SequenceSampler, RandomSampler, DistributedBatchSampler, \
         ComposeDataset, ChainDataset, WeightedRandomSampler, Subset, random_split
+
+from .read_write_file import read_file, decode_jpeg

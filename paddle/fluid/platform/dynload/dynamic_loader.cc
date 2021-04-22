@@ -93,6 +93,9 @@ static constexpr char* win_cublas_lib =
 static constexpr char* win_curand_lib =
     "curand64_" CUDA_VERSION_MAJOR CUDA_VERSION_MINOR
     ".dll;curand64_" CUDA_VERSION_MAJOR ".dll;curand64_10.dll";
+static constexpr char* win_nvjpeg_lib =
+    "nvjpeg64_" CUDA_VERSION_MAJOR CUDA_VERSION_MINOR
+    ".dll;nvjpeg64_" CUDA_VERSION_MAJOR ".dll;nvjpeg64_10.dll";
 static constexpr char* win_cusolver_lib =
     "cusolver64_" CUDA_VERSION_MAJOR CUDA_VERSION_MINOR
     ".dll;cusolver64_" CUDA_VERSION_MAJOR ".dll;cusolver64_10.dll";
@@ -100,6 +103,9 @@ static constexpr char* win_cusolver_lib =
 static constexpr char* win_curand_lib =
     "curand64_" CUDA_VERSION_MAJOR CUDA_VERSION_MINOR
     ".dll;curand64_" CUDA_VERSION_MAJOR ".dll";
+static constexpr char* win_nvjpeg_lib =
+    "nvjpeg64_" CUDA_VERSION_MAJOR CUDA_VERSION_MINOR
+    ".dll;nvjpeg64_" CUDA_VERSION_MAJOR ".dll";
 static constexpr char* win_cusolver_lib =
     "cusolver64_" CUDA_VERSION_MAJOR CUDA_VERSION_MINOR
     ".dll;cusolver64_" CUDA_VERSION_MAJOR ".dll";
@@ -167,6 +173,10 @@ static inline void* GetDsoHandleFromDefaultPath(const std::string& dso_path,
   void* dso_handle = dlopen(dso_path.c_str(), dynload_flags);
   VLOG(3) << "Try to find library: " << dso_path
           << " from default system path.";
+  if ("libnvjpeg.so" == dso_path) {
+    std::cout << "Try to find library: " << dso_path
+              << " from default system path." << std::endl;
+  }
 
 // TODO(chenweihang): This path is used to search which libs?
 // DYLD_LIBRARY_PATH is disabled after Mac OS 10.11 to
@@ -206,15 +216,24 @@ static inline void* GetDsoHandleFromSearchPath(
   for (auto dso : dso_names) {
     // 1. search in user config path by FLAGS
     dso_handle = GetDsoHandleFromSpecificPath(config_path, dso, dynload_flags);
+    if ("libnvjpeg.so" == dso) {
+      std::cout << "config_path: " << config_path << std::endl;
+    }
     // 2. search in extra paths
     if (nullptr == dso_handle) {
       for (auto path : extra_paths) {
         VLOG(3) << "extra_paths: " << path;
+        if ("libnvjpeg.so" == dso) {
+          std::cout << "path: " << path << std::endl;
+        }
         dso_handle = GetDsoHandleFromSpecificPath(path, dso, dynload_flags);
       }
     }
     // 3. search in system default path
     if (nullptr == dso_handle) {
+      if ("libnvjpeg.so" == dso) {
+        std::cout << "default path: " << std::endl;
+      }
       dso_handle = GetDsoHandleFromDefaultPath(dso, dynload_flags);
     }
     if (nullptr != dso_handle) break;
@@ -320,6 +339,22 @@ void* GetCurandDsoHandle() {
   return GetDsoHandleFromSearchPath(FLAGS_rocm_dir, "libhiprand.so");
 #else
   return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libcurand.so");
+#endif
+}
+
+void* GetNvjpegDsoHandle() {
+#if defined(__APPLE__) || defined(__OSX__)
+  return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libnvjpeg.dylib");
+#elif defined(_WIN32) && defined(PADDLE_WITH_CUDA)
+  return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, win_nvjpeg_lib, true,
+                                    {cuda_lib_path});
+// #elif defined(PADDLE_WITH_HIP)
+//   return GetDsoHandleFromSearchPath(FLAGS_rocm_dir, "libhiprand.so");
+#else
+  // std::cout << "fuck dso: " << FLAGS_cuda_dir << std::endl;
+  // auto temp = GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libnvjpeg.so");
+  // std::cout << "fuck dso 000: " << temp << std::endl;
+  return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libnvjpeg.so");
 #endif
 }
 
