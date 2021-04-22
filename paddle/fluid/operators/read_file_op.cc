@@ -37,7 +37,7 @@ class CPUReadFileKernel : public framework::OpKernel<T> {
 
     input.seekg(0, std::ios::beg);
     // if (image_data.size() < static_cast<long unsigned int>(file_size)) {
-    if (image_data.size() < file_size) {
+    if ((int64_t)image_data.size() < (int64_t)file_size) {
       image_data.resize(file_size);
     }
 

@@ -122,8 +122,6 @@ def decode_jpeg(x, name=None):
 
     if in_dygraph_mode():
         # shape = utils.convert_shape_to_list(shape)
-        print('enter cpp code!!')
-        print('x:', x)
         return core.ops.decode_jpeg(x)
 
     # check_type(shape, 'shape', (list, tuple, Variable), 'uniform/rand')
