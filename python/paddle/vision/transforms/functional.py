@@ -90,7 +90,7 @@ def to_tensor(pic, data_format='CHW'):
         return pic if data_format.lower() == 'hwc' else pic.transpose((2, 0, 1))
 
 
-def resize(img, size, interpolation='bilinear'):
+def resize(img, size, interpolation='bilinear', data_format='HWC'):
     """
     Resizes the image to given size
 
@@ -141,7 +141,7 @@ def resize(img, size, interpolation='bilinear'):
     if _is_pil_image(img):
         return F_pil.resize(img, size, interpolation)
     elif _is_tensor_image(img):
-        return F_t.resize(img, size, interpolation)
+        return F_t.resize(img, size, interpolation, data_format=data_format)
     else:
         return F_cv2.resize(img, size, interpolation)
 
@@ -253,7 +253,7 @@ def crop(img, top, left, height, width):
         return F_cv2.crop(img, top, left, height, width)
 
 
-def center_crop(img, output_size):
+def center_crop(img, output_size, data_format='CHW'):
     """Crops the given Image and resize it to desired size.
 
         Args:
@@ -287,7 +287,7 @@ def center_crop(img, output_size):
     if _is_pil_image(img):
         return F_pil.center_crop(img, output_size)
     elif _is_tensor_image(img):
-        return F_t.center_crop(img, output_size)
+        return F_t.center_crop(img, output_size, data_format=data_format)
     else:
         return F_cv2.center_crop(img, output_size)
 

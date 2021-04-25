@@ -36,7 +36,7 @@ class GPUDecodeJpegKernel : public framework::OpKernel<T> {
 
     auto* x_data = x->data<T>();
 
-    std::cout << x->place() << std::endl;
+    // std::cout << x->place() << std::endl;
 
     if (nvjpeg_handle == nullptr) {
       nvjpegStatus_t create_status =

@@ -180,10 +180,6 @@ static inline void* GetDsoHandleFromDefaultPath(const std::string& dso_path,
   void* dso_handle = dlopen(dso_path.c_str(), dynload_flags);
   VLOG(3) << "Try to find library: " << dso_path
           << " from default system path.";
-  if ("libnvjpeg.so" == dso_path) {
-    std::cout << "Try to find library: " << dso_path
-              << " from default system path." << std::endl;
-  }
 
 // TODO(chenweihang): This path is used to search which libs?
 // DYLD_LIBRARY_PATH is disabled after Mac OS 10.11 to
@@ -223,24 +219,15 @@ static inline void* GetDsoHandleFromSearchPath(
   for (auto dso : dso_names) {
     // 1. search in user config path by FLAGS
     dso_handle = GetDsoHandleFromSpecificPath(config_path, dso, dynload_flags);
-    if ("libnvjpeg.so" == dso) {
-      std::cout << "config_path: " << config_path << std::endl;
-    }
     // 2. search in extra paths
     if (nullptr == dso_handle) {
       for (auto path : extra_paths) {
         VLOG(3) << "extra_paths: " << path;
-        if ("libnvjpeg.so" == dso) {
-          std::cout << "path: " << path << std::endl;
-        }
         dso_handle = GetDsoHandleFromSpecificPath(path, dso, dynload_flags);
       }
     }
     // 3. search in system default path
     if (nullptr == dso_handle) {
-      if ("libnvjpeg.so" == dso) {
-        std::cout << "default path: " << std::endl;
-      }
       dso_handle = GetDsoHandleFromDefaultPath(dso, dynload_flags);
     }
     if (nullptr != dso_handle) break;
@@ -358,9 +345,6 @@ void* GetNvjpegDsoHandle() {
 // #elif defined(PADDLE_WITH_HIP)
 //   return GetDsoHandleFromSearchPath(FLAGS_rocm_dir, "libhiprand.so");
 #else
-  // std::cout << "fuck dso: " << FLAGS_cuda_dir << std::endl;
-  // auto temp = GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libnvjpeg.so");
-  // std::cout << "fuck dso 000: " << temp << std::endl;
   return GetDsoHandleFromSearchPath(FLAGS_cuda_dir, "libnvjpeg.so");
 #endif
 }
