@@ -43,6 +43,7 @@ extern void *nvjpeg_dso_handle;
   __macro(nvjpegCreateSimple);            \
   __macro(nvjpegJpegStateCreate);         \
   __macro(nvjpegGetImageInfo);            \
+  __macro(nvjpegJpegStateDestroy);        \
   __macro(nvjpegDecode);
 
 NVJPEG_RAND_ROUTINE_EACH(DECLARE_DYNAMIC_LOAD_NVJPEG_WRAP);

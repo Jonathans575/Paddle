@@ -19,7 +19,6 @@
 #include "paddle/fluid/framework/generator.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/operator.h"
-// #include "paddle/fluid/operators/uniform_random_op.h"
 #include "paddle/fluid/platform/dynload/nvjpeg.h"
 #include "paddle/fluid/platform/enforce.h"
 
@@ -29,7 +28,11 @@ namespace operators {
 template <typename T>
 class CPUDecodeJpegKernel : public framework::OpKernel<T> {
  public:
-  void Compute(const framework::ExecutionContext& ctx) const override {}
+  void Compute(const framework::ExecutionContext& ctx) const override {
+    // TODO(LieLinJiang): add cpu implement.
+    PADDLE_THROW(platform::errors::Unimplemented(
+        "DecodeJpeg op only supports GPU now."));
+  }
 };
 
 class DecodeJpegOp : public framework::OperatorWithKernel {
@@ -38,9 +41,7 @@ class DecodeJpegOp : public framework::OperatorWithKernel {
 
   void InferShape(framework::InferShapeContext* ctx) const override {
     OP_INOUT_CHECK(ctx->HasInput("X"), "Input", "X", "DecodeJpeg");
-    PADDLE_ENFORCE_EQ(ctx->HasOutput("Out"), true,
-                      platform::errors::InvalidArgument(
-                          "Output(Out) of DecodeJpegOp is null."));
+    OP_INOUT_CHECK(ctx->HasOutput("Out"), "Output", "Out", "DecodeJpeg");
 
     auto out_dims = std::vector<int>(1, -1);
     ctx->SetOutputDim("Out", framework::make_ddim(out_dims));
@@ -75,8 +76,12 @@ class DecodeJpegOpMaker : public framework::OpProtoAndCheckerMaker {
 This operator initializes a tensor with random integers sampled from a
 uniform distribution. The random result is in set [low, high).
 )DOC");
-    // AddAttr<std::string>("filename", "The shape of the output tensor.")
-    //     .SetDefault({});
+    AddAttr<std::string>(
+        "mode",
+        "(string, default \"unchanged\"), The read mode used "
+        "for optionally converting the image, can be \"unchanged\" "
+        ",\"gray\" , \"rgb\" .")
+        .SetDefault("unchanged");
   }
 };
 

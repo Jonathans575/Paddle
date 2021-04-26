@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <string>
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/platform/dynload/nvjpeg.h"
+#include "paddle/fluid/platform/enforce.h"
 
 namespace paddle {
 namespace operators {
@@ -32,20 +34,18 @@ class GPUDecodeJpegKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
     // Create nvJPEG handle
-    auto* x = ctx.Input<framework::Tensor>("X");
-
-    auto* x_data = x->data<T>();
-
-    // std::cout << x->place() << std::endl;
-
     if (nvjpeg_handle == nullptr) {
       nvjpegStatus_t create_status =
           platform::dynload::nvjpegCreateSimple(&nvjpeg_handle);
 
-      if (create_status != NVJPEG_STATUS_SUCCESS) {
-        std::cout << "nvjpegCreateSimple failed: " << create_status
-                  << std::endl;
-      }
+      PADDLE_ENFORCE_EQ(create_status, NVJPEG_STATUS_SUCCESS,
+                        platform::errors::Fatal("nvjpegCreateSimple failed: ",
+                                                create_status));
+
+      // if (create_status != NVJPEG_STATUS_SUCCESS) {
+      //   std::cout << "nvjpegCreateSimple failed: " << create_status
+      //             << std::endl;
+      // }
       // (
       //     create_status == NVJPEG_STATUS_SUCCESS,
       //     "nvjpegCreateSimple failed: ",
@@ -56,25 +56,36 @@ class GPUDecodeJpegKernel : public framework::OpKernel<T> {
     nvjpegStatus_t state_status =
         platform::dynload::nvjpegJpegStateCreate(nvjpeg_handle, &nvjpeg_state);
 
-    if (state_status != NVJPEG_STATUS_SUCCESS) {
-      std::cout << "nvjpegJpegStateCreate failed: " << state_status
-                << std::endl;
-    }
+    PADDLE_ENFORCE_EQ(state_status, NVJPEG_STATUS_SUCCESS,
+                      platform::errors::Fatal("nvjpegJpegStateCreate failed: ",
+                                              state_status));
+
+    // if (state_status != NVJPEG_STATUS_SUCCESS) {
+    //   std::cout << "nvjpegJpegStateCreate failed: " << state_status
+    //             << std::endl;
+    // }
 
     int components;
     nvjpegChromaSubsampling_t subsampling;
     int widths[NVJPEG_MAX_COMPONENT];
     int heights[NVJPEG_MAX_COMPONENT];
 
+    auto* x = ctx.Input<framework::Tensor>("X");
+    auto* x_data = x->data<T>();
+
     nvjpegStatus_t info_status = platform::dynload::nvjpegGetImageInfo(
         nvjpeg_handle, x_data, (size_t)x->numel(), &components, &subsampling,
         widths, heights);
 
-    if (info_status != NVJPEG_STATUS_SUCCESS) {
-      std::cout << "nvjpegGetImageInfo failed: " << std::endl;
-      // nvjpegJpegStateDestroy(nvjpeg_state);
-      // TORCH_CHECK(false, "nvjpegGetImageInfo failed: ", info_status);
-    }
+    PADDLE_ENFORCE_EQ(
+        info_status, NVJPEG_STATUS_SUCCESS,
+        platform::errors::Fatal("nvjpegGetImageInfo failed: ", info_status));
+
+    // if (info_status != NVJPEG_STATUS_SUCCESS) {
+    //   std::cout << "nvjpegGetImageInfo failed: " << std::endl;
+    //   // nvjpegJpegStateDestroy(nvjpeg_state);
+    //   // TORCH_CHECK(false, "nvjpegGetImageInfo failed: ", info_status);
+    // }
 
     int width = widths[0];
     int height = heights[0];
@@ -82,18 +93,31 @@ class GPUDecodeJpegKernel : public framework::OpKernel<T> {
     nvjpegOutputFormat_t outputFormat;
     int outputComponents;
 
-    if (components == 1) {
+    auto mode = ctx.Attr<std::string>("mode");
+    if (mode == "unchanged") {
+      if (components == 1) {
+        outputFormat = NVJPEG_OUTPUT_Y;
+        outputComponents = 1;
+      } else if (components == 3) {
+        outputFormat = NVJPEG_OUTPUT_RGB;
+        outputComponents = 3;
+      } else {
+        platform::dynload::nvjpegJpegStateDestroy(nvjpeg_state);
+        PADDLE_THROW(platform::errors::Fatal(
+            "The provided mode is not supported for JPEG files on GPU"));
+      }
+    } else if (mode == "gray") {
       outputFormat = NVJPEG_OUTPUT_Y;
       outputComponents = 1;
-    } else if (components == 3) {
+    } else if (mode == "rgb") {
       outputFormat = NVJPEG_OUTPUT_RGB;
       outputComponents = 3;
     } else {
-      std::cout << "The provided mode is not supported for JPEG files on GPU"
-                << std::endl;
-      // nvjpegJpegStateDestroy(nvjpeg_state);
-      // TORCH_CHECK(
-      //     false, "The provided mode is not supported for JPEG files on GPU");
+      platform::dynload::nvjpegJpegStateDestroy(nvjpeg_state);
+      PADDLE_ENFORCE_EQ(
+          false, true,
+          platform::errors::Fatal(
+              "The provided mode is not supported for JPEG files on GPU"));
     }
 
     nvjpegImage_t outImage;

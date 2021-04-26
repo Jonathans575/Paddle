@@ -19,7 +19,6 @@
 #include "paddle/fluid/framework/generator.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/operator.h"
-// #include "paddle/fluid/operators/uniform_random_op.h"
 #include "paddle/fluid/platform/enforce.h"
 
 namespace paddle {
@@ -36,7 +35,7 @@ class CPUReadFileKernel : public framework::OpKernel<T> {
     std::streamsize file_size = input.tellg();
 
     input.seekg(0, std::ios::beg);
-    // if (image_data.size() < static_cast<long unsigned int>(file_size)) {
+
     if ((int64_t)image_data.size() < (int64_t)file_size) {
       image_data.resize(file_size);
     }
@@ -78,10 +77,9 @@ class ReadFileOpMaker : public framework::OpProtoAndCheckerMaker {
   void Make() override {
     AddOutput("Out", "The output tensor of ReadFile op");
     AddComment(R"DOC(
-This operator initializes a tensor with random integers sampled from a
-uniform distribution. The random result is in set [low, high).
+This operator read a file.
 )DOC");
-    AddAttr<std::string>("filename", "The shape of the output tensor.")
+    AddAttr<std::string>("filename", "Path of the file to be readed.")
         .SetDefault({});
   }
 };

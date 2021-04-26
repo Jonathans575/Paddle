@@ -49,8 +49,6 @@ def _get_image_size(img):
         return img.size
     elif F._is_numpy_image(img):
         return img.shape[:2][::-1]
-    elif F._is_tensor_image(img):
-        return img.shape[:-1][::-1]  # h w c
     else:
         raise TypeError("Unexpected type {}".format(type(img)))
 
@@ -106,7 +104,7 @@ class Compose(object):
 
             for i in range(10):
                 sample = flowers[i]
-                print(sample[0].shape, sample[1])
+                print(sample[0].size, sample[1])
 
     """
 
@@ -390,22 +388,14 @@ class Resize(BaseTransform):
             print(fake_img.size)
     """
 
-    def __init__(self,
-                 size,
-                 interpolation='bilinear',
-                 data_format=None,
-                 keys=None):
+    def __init__(self, size, interpolation='bilinear', keys=None):
         super(Resize, self).__init__(keys)
         assert isinstance(size, int) or (isinstance(size, Iterable) and
                                          len(size) == 2)
         self.size = size
         self.interpolation = interpolation
-        self.data_format = data_format
 
     def _apply_image(self, img):
-        if self.data_format:
-            return F.resize(img, self.size, self.interpolation,
-                            self.data_format)
         return F.resize(img, self.size, self.interpolation)
 
 
@@ -458,7 +448,6 @@ class RandomResizedCrop(BaseTransform):
                  scale=(0.08, 1.0),
                  ratio=(3. / 4, 4. / 3),
                  interpolation='bilinear',
-                 data_format=None,
                  keys=None):
         super(RandomResizedCrop, self).__init__(keys)
         if isinstance(size, int):
@@ -506,7 +495,7 @@ class RandomResizedCrop(BaseTransform):
 
     def _apply_image(self, img):
         i, j, h, w = self._get_param(img)
-        # print('debug resize crop')
+
         cropped_img = F.crop(img, i, j, h, w)
         return F.resize(cropped_img, self.size, self.interpolation)
 
@@ -534,18 +523,14 @@ class CenterCrop(BaseTransform):
             print(fake_img.size)
     """
 
-    def __init__(self, size, data_format=None, keys=None):
+    def __init__(self, size, keys=None):
         super(CenterCrop, self).__init__(keys)
         if isinstance(size, numbers.Number):
             self.size = (int(size), int(size))
         else:
             self.size = size
-        self.data_format = data_format
 
     def _apply_image(self, img):
-        # print('center crop', self.data_format)
-        if self.data_format:
-            return F.center_crop(img, self.size, data_format=self.data_format)
         return F.center_crop(img, self.size)
 
 
@@ -705,9 +690,6 @@ class Transpose(BaseTransform):
         self.order = order
 
     def _apply_image(self, img):
-        if F._is_tensor_image(img):
-            return img.transpose(self.order)
-
         if F._is_pil_image(img):
             img = np.asarray(img)
 
