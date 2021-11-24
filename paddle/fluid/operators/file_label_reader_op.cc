@@ -144,8 +144,9 @@ class FileDataReader {
     });
   }
 
-  LoDTensorArray Read() {
+  std::pair<LoDTensorArray, std::vector<int>> Read() {
     LoDTensorArray ret;
+    std::vector<int> label;
     ret.reserve(batch_size_);
     int start_index = GetStartIndex();
     for (int32_t i = start_index; i < start_index + batch_size_; ++i) {
@@ -153,19 +154,20 @@ class FileDataReader {
       i %= image_label_pairs_.size();
       framework::LoDTensor tmp = ReadSample(image_label_pairs_[i].first);
       ret.push_back(std::move(tmp));
+      label.push_back(image_label_pairs_[i].second);
     }
-    return ret;
+    return std::make_pair(ret, label);
   }
 
-  LoDTensorArray Next() {
-    LoDTensorArray batch_data;
+  std::pair<LoDTensorArray, std::vector<int>> Next() {
+    std::pair<LoDTensorArray, std::vector<int>> batch_data;
     batch_buffer_.Pull(&batch_data);
     return batch_data;
   }
 
   bool LoadBatch() {
     // std::cout << "start LoadBatch 0.01" << std::endl;
-    LoDTensorArray batch_data = std::move(Read());
+    std::pair<LoDTensorArray, std::vector<int>> batch_data = std::move(Read());
     return batch_buffer_.Push(batch_data) == BufferStatus::kBufferStatusSuccess;
   }
 
@@ -179,7 +181,9 @@ class FileDataReader {
   int world_size_;
   int iters_per_epoch_;
   std::atomic<bool> is_closed_;
-  Buffer<LoDTensorArray> batch_buffer_;
+
+  Buffer<std::pair<LoDTensorArray, std::vector<int>>> batch_buffer_;
+  // Buffer<LoDTensorArray> batch_buffer_;
   std::thread load_thrd_;
 };
 
@@ -234,12 +238,29 @@ class FileLabelReaderOp : public framework::OperatorBase {
       // create reader
       reader_wrapper.SetUp(ctx);
     }
-    LoDTensorArray samples = reader_wrapper.reader->Next();
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.0";
+    std::pair<LoDTensorArray, std::vector<int>> samples =
+        reader_wrapper.reader->Next();
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.1";
     auto* out = scope.FindVar(Output("Out"));
     auto& out_array = *out->GetMutable<framework::LoDTensorArray>();
-    out_array.resize(samples.size());
-    for (size_t i = 0; i < samples.size(); ++i) {
-      copy_tensor(samples[i], &out_array[i]);
+    auto* label = scope.FindVar(Output("Label"));
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.2";
+    auto& label_tensor = *label->GetMutable<framework::LoDTensor>();
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.3, "
+               << static_cast<int64_t>(samples.first.size());
+    label_tensor.Resize(
+        framework::make_ddim({static_cast<int64_t>(samples.first.size())}));
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.4";
+    platform::CPUPlace cpu;
+    auto* label_data = label_tensor.mutable_data<int>(cpu);
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.5";
+    out_array.resize(samples.first.size());
+    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.6";
+    for (size_t i = 0; i < samples.first.size(); ++i) {
+      copy_tensor(samples.first[i], &out_array[i]);
+      LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.7";
+      label_data[i] = samples.second[i];
     }
     LOG(ERROR) << "FileLabelReaderOp RunImpl finish";
   }
@@ -259,6 +280,7 @@ class FileLabelReaderOpMaker : public framework::OpProtoAndCheckerMaker {
  public:
   void Make() override {
     AddOutput("Out", "The output tensor of ReadFile op");
+    AddOutput("Label", "The output tensor of ReadFile op");
     AddComment(R"DOC(
 This operator read a file.
 )DOC");
@@ -287,6 +309,7 @@ class FileLabelReaderInferVarType : public framework::VarTypeInference {
   void operator()(framework::InferVarTypeContext* ctx) const override {
     ctx->SetOutputType("Out", framework::proto::VarType::LOD_TENSOR_ARRAY,
                        framework::ALL_ELEMENTS);
+    ctx->SetOutputType("Label", framework::proto::VarType::LOD_TENSOR);
   }
 };
 
