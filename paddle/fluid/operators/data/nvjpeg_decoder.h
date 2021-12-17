@@ -26,15 +26,13 @@ namespace paddle {
 namespace operators {
 namespace data {
 
-static int dev_malloc(void** p, size_t s) {
-  return static_cast<int>(cudaMalloc(p, s));
-}
-static int dev_free(void* p) { return static_cast<int>(cudaFree(p)); }
+static int dev_malloc(void** p, size_t s) { return (int)cudaMalloc(p, s); }
+static int dev_free(void* p) { return (int)cudaFree(p); }
 
 static int host_malloc(void** p, size_t s, unsigned int f) {
-  return static_cast<int>(cudaHostAlloc(p, s, f));
+  return (int)cudaHostAlloc(p, s, f);
 }
-static int host_free(void* p) { return static_cast<int>(cudaFreeHost(p)); }
+static int host_free(void* p) { return (int)cudaFreeHost(p); }
 
 struct NvjpegDecodeTask {
   const uint8_t* bit_stream;
