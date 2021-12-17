@@ -59,7 +59,9 @@ class Pipeline:
         self._main_program = framework.switch_main_program(self._main_program)
         self._startup_program = framework.switch_startup_program(
             self._startup_program)
-        paddle.disable_static()
+        local_rank = paddle.distributed.get_rank()
+        # print('exit rank:', local_rank)
+        paddle.disable_static("gpu:" + str(local_rank))
 
     def set_outputs(self, outputs):
         if isinstance(outputs, Sequence):
@@ -76,10 +78,11 @@ class Pipeline:
     def build(self):
         global_block = self._main_program.desc.block(0)
         program_id = _hash_with_id(self._main_program, self)
-
+        local_rank = paddle.distributed.get_rank()
         self._attrs = ('global_block', global_block, 'start_op_index', 0,
                        'end_op_index', global_block.op_size(), 'program_id',
-                       program_id)
+                       program_id, 'local_rank', local_rank)
+        print('AAAAAAAAAAttrs:', self._attrs)
         self._is_built = True
 
     def _prepare_output_vars(self):

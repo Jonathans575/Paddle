@@ -31,11 +31,14 @@ class DataLoaderOpKernel : public framework::OpKernel<T> {
     auto start_op_index = ctx.Attr<int64_t>("start_op_index");
     auto end_op_index = ctx.Attr<int64_t>("end_op_index");
     auto program_id = ctx.Attr<int64_t>("program_id");
+    auto local_rank = ctx.Attr<int>("local_rank");
     auto prefetch_depth =
         static_cast<size_t>(ctx.Attr<int64_t>("prefetch_depth"));
-
+    auto dev = platform::CUDAPlace(local_rank);
+    // VLOG(1) << "Debug pipiline place" << dev;
+    // std::cout << "Debug pipiline place" << ctx.GetPlace() << std::endl;
     auto pipeline = data::PipelineManager::Instance()->GetPipeline(
-        program_id, global_block, ctx.GetPlace(), start_op_index, end_op_index,
+        program_id, global_block, dev, start_op_index, end_op_index,
         output_var_names, prefetch_depth);
 
     LOG(ERROR) << "Get Pipeline finsih";

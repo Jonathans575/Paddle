@@ -238,28 +238,26 @@ class FileLabelReaderOp : public framework::OperatorBase {
       // create reader
       reader_wrapper.SetUp(ctx);
     }
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.0";
+
     std::pair<LoDTensorArray, std::vector<int>> samples =
         reader_wrapper.reader->Next();
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.1";
+
     auto* out = scope.FindVar(Output("Out"));
     auto& out_array = *out->GetMutable<framework::LoDTensorArray>();
     auto* label = scope.FindVar(Output("Label"));
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.2";
     auto& label_tensor = *label->GetMutable<framework::LoDTensor>();
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.3, "
-               << static_cast<int64_t>(samples.first.size());
+
     label_tensor.Resize(
         framework::make_ddim({static_cast<int64_t>(samples.first.size())}));
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.4";
+
+    // auto local_rank = ctx.Attr<int>("local_rank");
+    // auto dev = platform::CUDAPlace(local_rank);
     platform::CPUPlace cpu;
     auto* label_data = label_tensor.mutable_data<int>(cpu);
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.5";
     out_array.resize(samples.first.size());
-    LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.6";
+
     for (size_t i = 0; i < samples.first.size(); ++i) {
       copy_tensor(samples.first[i], &out_array[i]);
-      LOG(ERROR) << "FileLabelReaderOp RunImpl start 0.7";
       label_data[i] = samples.second[i];
     }
     LOG(ERROR) << "FileLabelReaderOp RunImpl finish";
@@ -293,6 +291,9 @@ This operator read a file.
         .SetDefault({});
     AddAttr<std::vector<int>>("labels", "Path of the file to be readed.")
         .SetDefault({});
+    AddAttr<int>("local_rank",
+                 "(int64_t)"
+                 "The index of the op to start execution");
   }
 };
 

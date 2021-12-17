@@ -20,6 +20,7 @@ from ..fluid.layers import nn, utils
 from ..nn import Layer
 from ..fluid.initializer import Normal
 
+import paddle
 from paddle.common_ops_import import *
 from paddle import _C_ops
 
@@ -890,17 +891,20 @@ def file_label_reader(file_root, batch_size, name=None):
     samples = [s[0] for s in data_folder.samples]
     targets = [s[1] for s in data_folder.samples]
 
+    local_rank = paddle.distributed.get_rank()
+
     if in_dygraph_mode():
         return _C_ops.file_label_reader('root_dir', file_root, 'batch_size',
                                         batch_size, 'files', samples, 'labels',
-                                        targets)
+                                        targets, "local_rank", local_rank)
 
     inputs = dict()
     attrs = {
         'root_dir': file_root,
         'batch_size': batch_size,
         'files': samples,
-        'labels': targets
+        'labels': targets,
+        'local_rank': local_rank
     }
 
     helper = LayerHelper("file_label_reader", **locals())
@@ -955,12 +959,14 @@ def image_decode(x, mode='unchanged', num_threads=2, name=None):
 
             print(img.shape)
     """
-
+    local_rank = paddle.distributed.get_rank()
+    print('decode rank:', local_rank)
     if in_dygraph_mode():
-        return _C_ops.decode(x, "mode", mode)
+        return _C_ops.decode(x, "mode", mode, "num_threads", num_threads,
+                             "local_rank", local_rank)
 
     inputs = {'X': x}
-    attrs = {"mode": mode, "num_threads": num_threads}
+    attrs = {"mode": mode, "num_threads": num_threads, "local_rank": local_rank}
 
     helper = LayerHelper("batch_decode", **locals())
     out = helper.create_variable(

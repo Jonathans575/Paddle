@@ -94,14 +94,16 @@ class BatchDecodeJpegOpMaker : public framework::OpProtoAndCheckerMaker {
              "A one dimensional uint8 tensor containing the raw bytes "
              "of the JPEG image. It is a tensor with rank 1.");
     AddOutput("Out", "The output tensor of DecodeJpeg op");
+    AddAttr<int>("local_rank",
+                 "(int64_t)"
+                 "The index of the op to start execution");
     AddComment(R"DOC(
 This operator decodes a JPEG image into a 3 dimensional RGB Tensor 
 or 1 dimensional Gray Tensor. Optionally converts the image to the 
 desired format. The values of the output tensor are uint8 between 0 
 and 255.
 )DOC");
-    AddAttr<int>("num_threads", "Path of the file to be readed.")
-      .SetDefault(2);
+    AddAttr<int>("num_threads", "Path of the file to be readed.").SetDefault(2);
     AddAttr<std::string>(
         "mode",
         "(string, default \"unchanged\"), The read mode used "
@@ -118,8 +120,10 @@ and 255.
 namespace ops = paddle::operators;
 
 REGISTER_OPERATOR(
-    batch_decode, ops::data::BatchDecodeJpegOp, ops::data::BatchDecodeJpegOpMaker,
+    batch_decode, ops::data::BatchDecodeJpegOp,
+    ops::data::BatchDecodeJpegOpMaker,
     paddle::framework::EmptyGradOpMaker<paddle::framework::OpDesc>,
     paddle::framework::EmptyGradOpMaker<paddle::imperative::OpBase>)
 
-REGISTER_OP_CPU_KERNEL(batch_decode, ops::data::CPUBatchDecodeJpegKernel<uint8_t>)
+REGISTER_OP_CPU_KERNEL(batch_decode,
+                       ops::data::CPUBatchDecodeJpegKernel<uint8_t>)

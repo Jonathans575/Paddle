@@ -17,8 +17,8 @@
 #include <ThreadPool.h>
 #include <string>
 #include "paddle/fluid/framework/op_registry.h"
-#include "paddle/fluid/platform/enforce.h"
 #include "paddle/fluid/operators/data/nvjpeg_decoder.h"
+#include "paddle/fluid/platform/enforce.h"
 
 namespace paddle {
 namespace operators {
@@ -31,18 +31,22 @@ class GPUBatchDecodeJpegKernel : public framework::OpKernel<T> {
  public:
   void Compute(const framework::ExecutionContext& ctx) const override {
     int num_threads = ctx.Attr<int>("num_threads");
-    LOG(ERROR) << "GPUBatchDecodeJpegKernel Compute start, num_threads: " << num_threads;
+    LOG(ERROR) << "GPUBatchDecodeJpegKernel Compute start, num_threads: "
+               << num_threads;
     auto mode = ctx.Attr<std::string>("mode");
-    
+    auto local_rank = ctx.Attr<int>("local_rank");
     // multi-phrase decode thread pool
     if (!decode_pool) {
-      decode_pool = new NvjpegDecoderThreadPool(num_threads, mode);
+      decode_pool = new NvjpegDecoderThreadPool(num_threads, mode, local_rank);
     }
 
     const framework::LoDTensorArray* inputs =
         ctx.Input<framework::LoDTensorArray>("X");
 
     auto* out = ctx.OutputVar("Out");
+
+    auto dev = platform::CUDAPlace(local_rank);
+
     auto& out_array = *out->GetMutable<framework::LoDTensorArray>();
     out_array.resize(inputs->size());
 
@@ -51,12 +55,10 @@ class GPUBatchDecodeJpegKernel : public framework::OpKernel<T> {
       auto* x_data = x.data<T>();
       size_t x_numel = static_cast<size_t>(x.numel());
 
-      NvjpegDecodeTask task = {
-        .bit_stream = x_data,
-        .bit_len = x_numel,
-        .tensor = &out_array[i],
-        .place = ctx.GetPlace()
-      };
+      NvjpegDecodeTask task = {.bit_stream = x_data,
+                               .bit_len = x_numel,
+                               .tensor = &out_array[i],
+                               .place = dev};
       decode_pool->AddTask(std::make_shared<NvjpegDecodeTask>(task));
     }
 
@@ -91,6 +93,7 @@ class GPUBatchDecodeJpegKernel : public framework::OpKernel<T> {
 }  // namespace paddle
 
 namespace ops = paddle::operators;
-REGISTER_OP_CUDA_KERNEL(batch_decode, ops::data::GPUBatchDecodeJpegKernel<uint8_t>)
+REGISTER_OP_CUDA_KERNEL(batch_decode,
+                        ops::data::GPUBatchDecodeJpegKernel<uint8_t>)
 
 #endif

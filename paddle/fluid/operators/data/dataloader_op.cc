@@ -66,6 +66,9 @@ class DataLoaderOpMaker : public framework::OpProtoAndCheckerMaker {
                      "(int64_t)"
                      "The prefetch batch number")
         .SetDefault(2);
+    AddAttr<int>("local_rank",
+                 "(int64_t)"
+                 "The index of the op to start execution");
     AddComment(R"DOC(
         DataLoader Op
          )DOC");
