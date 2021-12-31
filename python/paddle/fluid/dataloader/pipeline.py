@@ -88,9 +88,12 @@ class Pipeline:
     def _prepare_output_vars(self):
         output_vars = []
         for var in self._out_vars:
+            if isinstance(var, (list, tuple)):
+                var = var[0]
             assert isinstance(var, framework.Variable), \
                     "output of DataLoader program should be Variable"
             var_desc = var.desc
+            print('pipeline debugggggggggg:', var_desc.name(), var_desc.type())
             output_var = core.VarBase(var_desc.dtype(),
                                       var_desc.shape(),
                                       var_desc.name(), var_desc.type(), False)

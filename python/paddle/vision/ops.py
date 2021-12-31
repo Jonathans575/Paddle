@@ -892,11 +892,13 @@ def file_label_reader(file_root, batch_size, name=None):
     targets = [s[1] for s in data_folder.samples]
 
     local_rank = paddle.distributed.get_rank()
+    world_size = paddle.distributed.get_world_size()
 
     if in_dygraph_mode():
         return _C_ops.file_label_reader('root_dir', file_root, 'batch_size',
                                         batch_size, 'files', samples, 'labels',
-                                        targets, "local_rank", local_rank)
+                                        targets, "local_rank", local_rank,
+                                        "world_size", world_size)
 
     inputs = dict()
     attrs = {
@@ -904,23 +906,26 @@ def file_label_reader(file_root, batch_size, name=None):
         'batch_size': batch_size,
         'files': samples,
         'labels': targets,
-        'local_rank': local_rank
+        'local_rank': local_rank,
+        'world_size': world_size
     }
 
     helper = LayerHelper("file_label_reader", **locals())
     # out = helper.create_variable_for_type_inference('uint8')
     out = helper.create_variable(
         name=unique_name.generate("file_label_reader"),
-        type=core.VarDesc.VarType.LOD_TENSOR_ARRAY,
+        type=core.VarDesc.VarType.LOD_TENSOR,
         dtype='uint8')
     label = helper.create_variable(
         name=unique_name.generate("file_label_reader"),
-        type=core.VarDesc.VarType.LOD_TENSOR_ARRAY,
+        type=core.VarDesc.VarType.LOD_TENSOR,
         dtype='int')
+    print('debugggggggggg:', type(label))
     helper.append_op(
         type="file_label_reader",
         inputs=inputs,
         attrs=attrs,
+        # outputs={"Out": out})
         outputs={"Out": out,
                  "Label": label})
 

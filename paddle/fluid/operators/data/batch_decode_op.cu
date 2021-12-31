@@ -18,11 +18,15 @@
 #include <string>
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/operators/data/nvjpeg_decoder.h"
+#include "paddle/fluid/operators/reader/lod_tensor_blocking_queue.h"
 #include "paddle/fluid/platform/enforce.h"
 
 namespace paddle {
 namespace operators {
 namespace data {
+
+using LoDTensorBlockingQueueHolder =
+    operators::reader::LoDTensorBlockingQueueHolder;
 
 static NvjpegDecoderThreadPool* decode_pool = nullptr;
 
@@ -37,7 +41,9 @@ class GPUBatchDecodeJpegKernel : public framework::OpKernel<T> {
     auto local_rank = ctx.Attr<int>("local_rank");
     // multi-phrase decode thread pool
     if (!decode_pool) {
+      LOG(ERROR) << "GPUBatchDecodeJpegKernel decode_pool init";
       decode_pool = new NvjpegDecoderThreadPool(num_threads, mode, local_rank);
+      // decode_pool = new NvjpegDecoderThreadPool(num_threads, mode);
     }
 
     const framework::LoDTensorArray* inputs =
@@ -49,6 +55,27 @@ class GPUBatchDecodeJpegKernel : public framework::OpKernel<T> {
 
     auto& out_array = *out->GetMutable<framework::LoDTensorArray>();
     out_array.resize(inputs->size());
+
+    // auto* in_var = ctx.InputVar("X");
+    // auto in_queue = in_var->Get<LoDTensorBlockingQueueHolder>().GetQueue();
+    //
+    // auto* out_var = ctx.OutputVar("Out");
+    // auto out_queue = out_var->Get<LoDTensorBlockingQueueHolder>().GetQueue();
+    // if (out_queue == nullptr) {
+    //   LOG(ERROR) << "decode init output queue";
+    //   auto* holder = out_var->template
+    //   GetMutable<LoDTensorBlockingQueueHolder>();
+    //   holder->InitOnce(2);
+    //   out_queue = holder->GetQueue();
+    // }
+    //
+    // bool success = true;
+    // auto inputs = in_queue->Pop(&success);
+    // PADDLE_ENFORCE_EQ(success, true,
+    //     platform::errors::PreconditionNotMet("Read from input queue
+    //     failed"));
+    // framework::LoDTensorArray out_array;
+    // out_array.resize(inputs.size());
 
     for (size_t i = 0; i < inputs->size(); i++) {
       const framework::LoDTensor x = inputs->at(i);
@@ -63,6 +90,7 @@ class GPUBatchDecodeJpegKernel : public framework::OpKernel<T> {
     }
 
     decode_pool->RunAll(true);
+    // out_queue->Push(out_array);
 
     // // multi-phrase decode single thread
     // if (!nvjpeg_decoder) {

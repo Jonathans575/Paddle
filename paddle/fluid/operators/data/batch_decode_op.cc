@@ -19,6 +19,7 @@
 #include "paddle/fluid/framework/generator.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/operator.h"
+#include "paddle/fluid/framework/var_type.h"
 #include "paddle/fluid/platform/enforce.h"
 
 namespace paddle {
@@ -63,8 +64,8 @@ class BatchDecodeJpegOp : public framework::OperatorWithKernel {
  protected:
   framework::OpKernelType GetExpectedKernelType(
       const framework::ExecutionContext& ctx) const override {
-    return framework::OpKernelType(
-        OperatorWithKernel::IndicateVarDataType(ctx, "X"), ctx.GetPlace());
+    return framework::OpKernelType(framework::proto::VarType::UINT8,
+                                   ctx.GetPlace());
   }
 
   framework::OpKernelType GetKernelTypeForVar(

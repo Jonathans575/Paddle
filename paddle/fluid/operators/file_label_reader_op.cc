@@ -20,12 +20,16 @@
 #include "paddle/fluid/framework/lod_tensor_array.h"
 #include "paddle/fluid/framework/op_registry.h"
 #include "paddle/fluid/framework/operator.h"
+#include "paddle/fluid/operators/reader/lod_tensor_blocking_queue.h"
 #include "paddle/fluid/platform/enforce.h"
 
 namespace paddle {
 namespace operators {
 
 using LoDTensorArray = framework::LoDTensorArray;
+using LoDTensorBlockingQueue = operators::reader::LoDTensorBlockingQueue;
+using LoDTensorBlockingQueueHolder =
+    operators::reader::LoDTensorBlockingQueueHolder;
 
 enum BufferStatus {
   kBufferStatusSuccess = 0,
@@ -89,7 +93,9 @@ void Buffer<T>::Close() {
 
 class FileDataReader {
  public:
-  explicit FileDataReader(const framework::ExecutionContext& ctx) {
+  explicit FileDataReader(const framework::ExecutionContext& ctx,
+                          LoDTensorBlockingQueue* queue,
+                          LoDTensorBlockingQueue* label_queue) {
     std::vector<std::string> files =
         ctx.Attr<std::vector<std::string>>("files");
     std::vector<int> labels = ctx.Attr<std::vector<int>>("labels");
@@ -104,7 +110,7 @@ class FileDataReader {
     is_closed_ = false;
     for (int i = 0, n = files.size(); i < n; i++)
       image_label_pairs_.emplace_back(std::move(files[i]), labels[i]);
-    StartLoadThread();
+    StartLoadThread(queue, label_queue);
   }
 
   int GetStartIndex() {
@@ -133,17 +139,29 @@ class FileDataReader {
     return out;
   }
 
-  void StartLoadThread() {
+  void StartLoadThread(LoDTensorBlockingQueue* queue,
+                       LoDTensorBlockingQueue* label_queue) {
     if (load_thrd_.joinable()) {
       return;
     }
 
-    load_thrd_ = std::thread([this] {
-      while (!is_closed_.load() && LoadBatch()) {
-      }
+    load_thrd_ = std::thread([this, queue, label_queue] {
+      while (!is_closed_.load()) LoadBatch(queue, label_queue);
     });
   }
 
+  // LoDTensorArray Read() {
+  //   LoDTensorArray ret;
+  //   ret.reserve(batch_size_);
+  //   int start_index = GetStartIndex();
+  //   for (int32_t i = start_index; i < start_index + batch_size_; ++i) {
+  //     // FIXME
+  //     i %= image_label_pairs_.size();
+  //     framework::LoDTensor tmp = ReadSample(image_label_pairs_[i].first);
+  //     ret.push_back(std::move(tmp));
+  //   }
+  //   return ret;
+  // }
   std::pair<LoDTensorArray, std::vector<int>> Read() {
     LoDTensorArray ret;
     std::vector<int> label;
@@ -159,17 +177,40 @@ class FileDataReader {
     return std::make_pair(ret, label);
   }
 
-  std::pair<LoDTensorArray, std::vector<int>> Next() {
-    std::pair<LoDTensorArray, std::vector<int>> batch_data;
-    batch_buffer_.Pull(&batch_data);
-    return batch_data;
+  // LoDTensorArray Next() {
+  //   LoDTensorArray batch_data;
+  //   batch_buffer_.Pull(&batch_data);
+  //   return batch_data;
+  // }
+  //
+  void LoadBatch(LoDTensorBlockingQueue* queue,
+                 LoDTensorBlockingQueue* label_queue) {
+    // std::cout << "start LoadBatch 0.01" << std::endl;
+    auto batch_data = std::move(Read());
+    queue->Push(batch_data.first);
+    framework::LoDTensor label_tensor;
+    LoDTensorArray label_array;
+    // auto& label_tensor = label.GetMutable<framework::LoDTensor>();
+    label_tensor.Resize(
+        framework::make_ddim({static_cast<int64_t>(batch_data.first.size())}));
+    platform::CPUPlace cpu;
+    auto* label_data = label_tensor.mutable_data<int>(cpu);
+    for (size_t i = 0; i < batch_data.first.size(); ++i) {
+      label_data[i] = batch_data.second[i];
+    }
+    label_array.push_back(label_tensor);
+    label_queue->Push(label_array);
+    // return batch_buffer_.Push(batch_data) ==
+    // BufferStatus::kBufferStatusSuccess;
   }
 
-  bool LoadBatch() {
-    // std::cout << "start LoadBatch 0.01" << std::endl;
-    std::pair<LoDTensorArray, std::vector<int>> batch_data = std::move(Read());
-    return batch_buffer_.Push(batch_data) == BufferStatus::kBufferStatusSuccess;
-  }
+  // void copy_tensor(const framework::LoDTensor& lod_tensor,
+  //                  framework::LoDTensor* out) const {
+  //   if (lod_tensor.numel() == 0) return;
+  //   auto& out_tensor = *out;
+  //   TensorCopy(lod_tensor, lod_tensor.place(), &out_tensor);
+  //   out_tensor.set_lod(lod_tensor.lod());
+  // }
 
  private:
   int batch_size_;
@@ -181,16 +222,16 @@ class FileDataReader {
   int world_size_;
   int iters_per_epoch_;
   std::atomic<bool> is_closed_;
-
-  Buffer<std::pair<LoDTensorArray, std::vector<int>>> batch_buffer_;
-  // Buffer<LoDTensorArray> batch_buffer_;
+  Buffer<LoDTensorArray> batch_buffer_;
   std::thread load_thrd_;
 };
 
 class FileDataReaderWrapper {
  public:
-  void SetUp(const framework::ExecutionContext& ctx) {
-    reader.reset(new FileDataReader(ctx));
+  void SetUp(const framework::ExecutionContext& ctx,
+             LoDTensorBlockingQueue* queue,
+             LoDTensorBlockingQueue* label_queue) {
+    reader.reset(new FileDataReader(ctx, queue, label_queue));
   }
 
   std::shared_ptr<FileDataReader> reader = nullptr;
@@ -234,32 +275,38 @@ class FileLabelReaderOp : public framework::OperatorBase {
     auto& dev_ctx = *pool.Get(dev_place);
     framework::RuntimeContext run_ctx(Inputs(), Outputs(), scope);
     framework::ExecutionContext ctx(*this, scope, dev_ctx, run_ctx);
-    if (reader_wrapper.reader == nullptr) {
-      // create reader
-      reader_wrapper.SetUp(ctx);
-    }
-
-    std::pair<LoDTensorArray, std::vector<int>> samples =
-        reader_wrapper.reader->Next();
 
     auto* out = scope.FindVar(Output("Out"));
-    auto& out_array = *out->GetMutable<framework::LoDTensorArray>();
-    auto* label = scope.FindVar(Output("Label"));
-    auto& label_tensor = *label->GetMutable<framework::LoDTensor>();
-
-    label_tensor.Resize(
-        framework::make_ddim({static_cast<int64_t>(samples.first.size())}));
-
-    // auto local_rank = ctx.Attr<int>("local_rank");
-    // auto dev = platform::CUDAPlace(local_rank);
-    platform::CPUPlace cpu;
-    auto* label_data = label_tensor.mutable_data<int>(cpu);
-    out_array.resize(samples.first.size());
-
-    for (size_t i = 0; i < samples.first.size(); ++i) {
-      copy_tensor(samples.first[i], &out_array[i]);
-      label_data[i] = samples.second[i];
+    auto out_queue = out->Get<LoDTensorBlockingQueueHolder>().GetQueue();
+    if (out_queue == nullptr) {
+      LOG(ERROR) << "FileLabelReaderOp init output queue";
+      auto* holder = out->template GetMutable<LoDTensorBlockingQueueHolder>();
+      holder->InitOnce(2);
+      out_queue = holder->GetQueue();
     }
+
+    auto* out_label = scope.FindVar(Output("Label"));
+    auto out_label_queue =
+        out_label->Get<LoDTensorBlockingQueueHolder>().GetQueue();
+    if (out_label_queue == nullptr) {
+      LOG(ERROR) << "FileLabelReaderOp init output label queue";
+      auto* label_holder =
+          out_label->template GetMutable<LoDTensorBlockingQueueHolder>();
+      label_holder->InitOnce(2);
+      out_label_queue = label_holder->GetQueue();
+    }
+
+    if (reader_wrapper.reader == nullptr) {
+      // create reader
+      reader_wrapper.SetUp(ctx, out_queue.get(), out_label_queue.get());
+    }
+    // LoDTensorArray samples = reader_wrapper.reader->Next();
+    // framework::LoDTensorArray out_array;
+    // out_array.resize(samples.size());
+    // for (size_t i = 0; i < samples.size(); ++i) {
+    //   copy_tensor(samples[i], &out_array[i]);
+    // }
+    // out_queue->Push(out_array);
     LOG(ERROR) << "FileLabelReaderOp RunImpl finish";
   }
 
@@ -308,9 +355,10 @@ class FileLabelReaderInferShape : public framework::InferShapeBase {
 class FileLabelReaderInferVarType : public framework::VarTypeInference {
  public:
   void operator()(framework::InferVarTypeContext* ctx) const override {
-    ctx->SetOutputType("Out", framework::proto::VarType::LOD_TENSOR_ARRAY,
-                       framework::ALL_ELEMENTS);
-    ctx->SetOutputType("Label", framework::proto::VarType::LOD_TENSOR);
+    // ctx->SetOutputType("Out", framework::proto::VarType::LOD_TENSOR_ARRAY,
+    //                    framework::ALL_ELEMENTS);
+    // ctx->SetOutputType("Label", framework::proto::VarType::LOD_TENSOR_ARRAY,
+    //                    framework::ALL_ELEMENTS);
   }
 };
 
