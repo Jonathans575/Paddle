@@ -108,7 +108,9 @@ bool PrelnResidualBiasPluginDynamic<T>::supportsFormatCombination(
   }
 
   // output
-  return in.type == prev.type && in.format == prev.format;
+  // return in.type == prev.type && in.format == prev.format;
+  return true;
+  // return in.format == nvinfer1::TensorFormat::kCHW32;
 }
 
 template<typename T>
@@ -123,8 +125,15 @@ nvinfer1::DataType PrelnResidualBiasPluginDynamic<T>::getOutputDataType(
 //  PADDLE_ENFORCE_EQ((input_types[0] == nvinfer1::DataType::kHALF),
 //                    true, platform::errors::InvalidArgument(
 //                              "The input type should be half or float"));
-  return input_types[0];
+  // return input_types[0];
+  if (index == 0){
+    return input_types[0];
+  }
+  else{
+    return nvinfer1::DataType::kINT8;
+  }
 }
+
 
 template<typename T>
 int PrelnResidualBiasPluginDynamic<T>::enqueue(
@@ -163,16 +172,21 @@ int PrelnResidualBiasPluginDynamic<T>::enqueue(
     const float *layernorm_bias = bias_gpu_;
     uint8_t *mask_data=nullptr;
     half *dst = static_cast<half *>(outputs[1]);;
-    half *layernorm_dst = static_cast<half *>(outputs[0]);
+    // half *layernorm_dst = static_cast<half *>(outputs[0]);
+    int8_t *layernorm_dst = static_cast<int8_t *>(outputs[0]);
     float *mean = nullptr;
     float *var = nullptr;
 
 //    const int VecSize = paddle::operators::MAX_CACHE_BYTES / sizeof(T);
     const int VecSize = 8;
-    paddle::operators::FusedLayernormResidualDropoutBiasFunctor<half, uint8_t, VecSize, float, false>()(
+    paddle::operators::FusedLayernormResidualDropoutBiasInt8Functor<half, uint8_t, VecSize, float, false>()(
           rows, cols, seed, dropout_prob, is_upscale_in_train, is_test,
           increment, epsilon, src, residual, bias, scale, layernorm_bias,
           mask_data, dst, layernorm_dst, mean, var, stream);
+    // paddle::operators::FusedLayernormResidualDropoutBiasFunctor<half, uint8_t, VecSize, float, false>()(
+    //       rows, cols, seed, dropout_prob, is_upscale_in_train, is_test,
+    //       increment, epsilon, src, residual, bias, scale, layernorm_bias,
+    //       mask_data, dst, layernorm_dst, mean, var, stream);
 //    cudaDeviceSynchronize();
     VLOG(6) << "finish FusedLayernormResidualDropoutBiasFunctor";
 //    operators::math::PrelnResidualBiasFunctor<half> skip_layer_norm_func;

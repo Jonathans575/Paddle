@@ -92,6 +92,30 @@ __global__ void no_exact_gelu_kernel(const T a, const T b, const T c, int n,
 #endif
 }
 
+static inline __device__ int8_t float_to_int8_rn(float x)
+{
+  uint32_t dst;
+  asm volatile("cvt.rni.sat.s8.f32 %0, %1;"
+               : "=r"(dst)
+               : "f"(x));
+  return reinterpret_cast<const int8_t &>(dst);
+}
+
+template <typename T, unsigned TPB>
+__global__ void int8_gelu_kernel(const T a, const T b, const T c, int n,
+                                     const T* input, int8_t* output, const float scale=1.0) {
+#if CUDA_ARCH_FP16_SUPPORTED(__CUDA_ARCH__)
+  const int idx = blockIdx.x * TPB + threadIdx.x;
+  if (idx < n) {
+    const T in = input[idx];
+    const T tmp = in * (c * in * in + b);
+    const T cdf = a + a * do_tanh<T>(tmp);
+    float val = static_cast<float>(in * cdf);
+    output[idx] = float_to_int8_rn(val * scale);
+  }
+#endif
+}
+
 int GeluPlugin::enqueue(int batch_size, const void* const* inputs,
 #if IS_TRT_VERSION_LT(8000)
                         void** outputs, void*, cudaStream_t stream) {
@@ -109,18 +133,38 @@ int GeluPlugin::enqueue(int batch_size, const void* const* inputs,
 
   auto type = getDataType();
   if (type == nvinfer1::DataType::kFLOAT) {
-    VLOG(1) << "TRT Plugin DataType selected. Gelu-->fp32";
-    const float* input = static_cast<const float*>(inputs[0]);
-    float* output = static_cast<float*>(outputs[0]);
-    gelu_kernel<float, block_size><<<grid_size, block_size, 0, stream>>>(
-        kA, num, input, output);
+    if (true){
+      VLOG(1) << "TRT Plugin DataType selected. FP32_Gelu-->Int8";
+      const half* input = static_cast<const half*>(inputs[0]);
+      int8_t* output = static_cast<int8_t*>(outputs[0]);
+      int8_gelu_kernel<half,
+                          block_size><<<grid_size, block_size, 0, stream>>>(
+          kAT, kBT, kCT, num, input, output);
+    }
+    else{
+      VLOG(1) << "TRT Plugin DataType selected. Gelu-->fp32";
+      const float* input = static_cast<const float*>(inputs[0]);
+      float* output = static_cast<float*>(outputs[0]);
+      gelu_kernel<float, block_size><<<grid_size, block_size, 0, stream>>>(
+          kA, num, input, output);
+    }
   } else if (type == nvinfer1::DataType::kHALF) {
     VLOG(1) << "TRT Plugin DataType selected. Gelu-->fp16";
-    const half* input = static_cast<const half*>(inputs[0]);
-    half* output = static_cast<half*>(outputs[0]);
-    no_exact_gelu_kernel<half,
-                         block_size><<<grid_size, block_size, 0, stream>>>(
-        kAT, kBT, kCT, num, input, output);
+    if (true){
+      VLOG(1) << "TRT Plugin DataType selected. Gelu-->Int8";
+      const half* input = static_cast<const half*>(inputs[0]);
+      int8_t* output = static_cast<int8_t*>(outputs[0]);
+      int8_gelu_kernel<half,
+                          block_size><<<grid_size, block_size, 0, stream>>>(
+          kAT, kBT, kCT, num, input, output);
+    }
+    else {
+      const half* input = static_cast<const half*>(inputs[0]);
+      half* output = static_cast<half*>(outputs[0]);
+      no_exact_gelu_kernel<half,
+                          block_size><<<grid_size, block_size, 0, stream>>>(
+          kAT, kBT, kCT, num, input, output);
+    }
   } else {
     PADDLE_THROW(platform::errors::InvalidArgument(
         "The Gelu TRT Plugin's input type should be float or half."));
@@ -164,7 +208,10 @@ bool GeluPluginDynamic::supportsFormatCombination(
   }
   const nvinfer1::PluginTensorDesc& prev = in_out[pos - 1];
   // output
-  return in.type == prev.type && in.format == prev.format;
+  // return in.type == prev.type && in.format == prev.format;
+  // return true;
+  return in.format == nvinfer1::TensorFormat::kCHW32;
+  // return in.format == prev.format;
 }
 
 nvinfer1::DataType GeluPluginDynamic::getOutputDataType(
@@ -174,7 +221,8 @@ nvinfer1::DataType GeluPluginDynamic::getOutputDataType(
                                   "The Gelu Plugin only has one input, so the "
                                   "index value should be 0, but get %d.",
                                   index));
-  return input_types[0];
+  // return input_types[0];
+  return nvinfer1::DataType::kINT8;
 }
 
 int GeluPluginDynamic::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
@@ -189,11 +237,22 @@ int GeluPluginDynamic::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
 
   auto input_type = input_desc[0].type;
   if (input_type == nvinfer1::DataType::kFLOAT) {
-    VLOG(1) << "TRT Plugin DataType selected. Gelu-->fp32";
-    const float* input = static_cast<const float*>(inputs[0]);
-    float* output = static_cast<float*>(outputs[0]);
-    gelu_kernel<float, block_size><<<grid_size, block_size, 0, stream>>>(
-        kA, num, input, output);
+    if (true){
+      VLOG(1) << "TRT Plugin DataType selected. FP32_Gelu-->Int8";
+      const float* input = static_cast<const float*>(inputs[0]);
+      int8_t* output = static_cast<int8_t*>(outputs[0]);
+      int8_gelu_kernel<float,
+                          block_size><<<grid_size, block_size, 0, stream>>>(
+          kAT, kBT, kCT, num, input, output);
+    }
+    else{
+      VLOG(1) << "TRT Plugin DataType selected. Gelu-->fp32";
+      const float* input = static_cast<const float*>(inputs[0]);
+      float* output = static_cast<float*>(outputs[0]);
+      gelu_kernel<float, block_size><<<grid_size, block_size, 0, stream>>>(
+          kA, num, input, output);
+    }
+    
   } else if (input_type == nvinfer1::DataType::kHALF) {
     VLOG(1) << "TRT Plugin DataType selected. Gelu-->fp16";
     const half* input = static_cast<const half*>(inputs[0]);

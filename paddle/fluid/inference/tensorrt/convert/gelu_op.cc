@@ -48,8 +48,10 @@ class GeluOpConverter : public OpConverter {
     auto* input = engine_->GetITensor(op_desc.Input("X")[0]);
 
     nvinfer1::ILayer* layer = nullptr;
-    if (op_desc.HasAttr("approximate") &&
-        BOOST_GET_CONST(bool, op_desc.GetAttr("approximate"))) {
+    // if (op_desc.HasAttr("approximate") &&
+    //     BOOST_GET_CONST(bool, op_desc.GetAttr("approximate"))) {
+    if (false) {
+      VLOG(1) << "gelu_op use approximate";   
 #if IS_TRT_VERSION_GE(7000)
       nvinfer1::Dims input_shape;
       input_shape.nbDims = input->getDimensions().nbDims;
@@ -121,68 +123,73 @@ class GeluOpConverter : public OpConverter {
           TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_CDF->getOutput(0),
                                *input, nvinfer1::ElementWiseOperation::kPROD);
       layer = y;
+    //   float out_scale = 1.0;
+    //   engine_->SetTensorDynamicRange(layer->getOutput(0), out_scale);
 #else
       PADDLE_THROW(platform::errors::Fatal(
           "You are running GeLU Op with approximate True, need to confirm that "
           "your TRT version is no less than 7.0"));
 #endif
     } else {
-#if IS_TRT_VERSION_GE(7000)
-      nvinfer1::Dims input_shape;
-      input_shape.nbDims = input->getDimensions().nbDims;
-      for (int i = 0; i < input_shape.nbDims; ++i) {
-        input_shape.d[i] = 1;
-      }
-      std::string out_name = op_desc.Output("Out").front();
-      auto create_weights = [&](float data, std::string type) -> float* {
-        std::unique_ptr<framework::Tensor> tmp_tensor(new framework::Tensor());
-        tmp_tensor->Resize({1});
-        auto* tmp_data = tmp_tensor->mutable_data<float>(platform::CPUPlace());
-        tmp_data[0] = data;
-        engine_->SetWeights(out_name + "_gelu_op_" + type,
-                            std::move(tmp_tensor));
-        return tmp_data;
-      };
-      float* constant_one = create_weights(1.0f, "constant_one");
-      float* constant_half = create_weights(0.5f, "constant_half");
-      float* constant_rsqrt2 =
-          create_weights(0.70710678118f, "constant_rsqrt2");
-      auto constant_layer_one = TRT_ENGINE_ADD_LAYER(
-          engine_, Constant, input_shape,
-          nvinfer1::Weights{nvinfer1::DataType::kFLOAT,
-                            static_cast<void*>(constant_one), 1});
-      auto constant_layer_half = TRT_ENGINE_ADD_LAYER(
-          engine_, Constant, input_shape,
-          nvinfer1::Weights{nvinfer1::DataType::kFLOAT,
-                            static_cast<void*>(constant_half), 1});
-      auto constant_layer_rsqrt2 = TRT_ENGINE_ADD_LAYER(
-          engine_, Constant, input_shape,
-          nvinfer1::Weights{nvinfer1::DataType::kFLOAT,
-                            static_cast<void*>(constant_rsqrt2), 1});
-      auto layer_mul = TRT_ENGINE_ADD_LAYER(
-          engine_, ElementWise, *input, *constant_layer_rsqrt2->getOutput(0),
-          nvinfer1::ElementWiseOperation::kPROD);
-      auto layer_erf =
-          TRT_ENGINE_ADD_LAYER(engine_, Unary, *layer_mul->getOutput(0),
-                               nvinfer1::UnaryOperation::kERF);
-      auto layer_add =
-          TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_erf->getOutput(0),
-                               *constant_layer_one->getOutput(0),
-                               nvinfer1::ElementWiseOperation::kSUM);
-      auto layer_CDF =
-          TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_add->getOutput(0),
-                               *constant_layer_half->getOutput(0),
-                               nvinfer1::ElementWiseOperation::kPROD);
-      auto y =
-          TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_CDF->getOutput(0),
-                               *input, nvinfer1::ElementWiseOperation::kPROD);
-      layer = y;
-#else  // if IS_TRT_VERSION_GE(7000)
+      VLOG(1) << "gelu_op not use approximate";   
+// #if IS_TRT_VERSION_GE(7000)
+//       nvinfer1::Dims input_shape;
+//       input_shape.nbDims = input->getDimensions().nbDims;
+//       for (int i = 0; i < input_shape.nbDims; ++i) {
+//         input_shape.d[i] = 1;
+//       }
+//       std::string out_name = op_desc.Output("Out").front();
+//       auto create_weights = [&](float data, std::string type) -> float* {
+//         std::unique_ptr<framework::Tensor> tmp_tensor(new framework::Tensor());
+//         tmp_tensor->Resize({1});
+//         auto* tmp_data = tmp_tensor->mutable_data<float>(platform::CPUPlace());
+//         tmp_data[0] = data;
+//         engine_->SetWeights(out_name + "_gelu_op_" + type,
+//                             std::move(tmp_tensor));
+//         return tmp_data;
+//       };
+//       float* constant_one = create_weights(1.0f, "constant_one");
+//       float* constant_half = create_weights(0.5f, "constant_half");
+//       float* constant_rsqrt2 =
+//           create_weights(0.70710678118f, "constant_rsqrt2");
+//       auto constant_layer_one = TRT_ENGINE_ADD_LAYER(
+//           engine_, Constant, input_shape,
+//           nvinfer1::Weights{nvinfer1::DataType::kFLOAT,
+//                             static_cast<void*>(constant_one), 1});
+//       auto constant_layer_half = TRT_ENGINE_ADD_LAYER(
+//           engine_, Constant, input_shape,
+//           nvinfer1::Weights{nvinfer1::DataType::kFLOAT,
+//                             static_cast<void*>(constant_half), 1});
+//       auto constant_layer_rsqrt2 = TRT_ENGINE_ADD_LAYER(
+//           engine_, Constant, input_shape,
+//           nvinfer1::Weights{nvinfer1::DataType::kFLOAT,
+//                             static_cast<void*>(constant_rsqrt2), 1});
+//       auto layer_mul = TRT_ENGINE_ADD_LAYER(
+//           engine_, ElementWise, *input, *constant_layer_rsqrt2->getOutput(0),
+//           nvinfer1::ElementWiseOperation::kPROD);
+//       auto layer_erf =
+//           TRT_ENGINE_ADD_LAYER(engine_, Unary, *layer_mul->getOutput(0),
+//                                nvinfer1::UnaryOperation::kERF);
+//       auto layer_add =
+//           TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_erf->getOutput(0),
+//                                *constant_layer_one->getOutput(0),
+//                                nvinfer1::ElementWiseOperation::kSUM);
+//       auto layer_CDF =
+//           TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_add->getOutput(0),
+//                                *constant_layer_half->getOutput(0),
+//                                nvinfer1::ElementWiseOperation::kPROD);
+//       auto y =
+//           TRT_ENGINE_ADD_LAYER(engine_, ElementWise, *layer_CDF->getOutput(0),
+//                                *input, nvinfer1::ElementWiseOperation::kPROD);
+//       layer = y;
+// #else  // if IS_TRT_VERSION_GE(7000)
       int input_num = op_desc.Input("X").size();
       if (engine_->with_dynamic_shape()) {
+        VLOG(4) << "Use gelu_op plugin!!!";
 #if IS_TRT_VERSION_GE(6000)
         bool with_fp16 =
             engine_->WithFp16() && !engine_->disable_trt_plugin_fp16();
+        engine_->SetTensorDynamicRange(input, 1.0);
         plugin::GeluPluginDynamic* plugin =
             new plugin::GeluPluginDynamic(with_fp16);
         layer = engine_->AddDynamicPlugin(&input, input_num, plugin);
@@ -192,12 +199,13 @@ class GeluOpConverter : public OpConverter {
             "your TRT version is no less than 6.0"));
 #endif
       } else {
+        VLOG(4) << "Use gelu_op plugin!!!";
         bool with_fp16 =
             engine_->WithFp16() && !engine_->disable_trt_plugin_fp16();
         plugin::GeluPlugin* plugin = new plugin::GeluPlugin(with_fp16);
         layer = engine_->AddPlugin(&input, input_num, plugin);
       }
-#endif  // if IS_TRT_VERSION_GE(7000)
+// #endif  // if IS_TRT_VERSION_GE(7000)
     }
     auto output_name = op_desc.Output("Out")[0];
     RreplenishLayerAndOutput(layer, "gelu", {output_name}, test_mode);

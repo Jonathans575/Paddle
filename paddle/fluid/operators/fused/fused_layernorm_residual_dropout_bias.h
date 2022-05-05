@@ -83,6 +83,53 @@ __device__ void CalcLayernormY(
 }
 
 
+template <typename T, int VecSize, typename U,
+          bool ScaleBiasWithSameTypeX = false>
+__device__ void CalcLayernormYInt8(
+    const LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX> *scale,
+    const LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX> *bias, const T *x,
+    int8_t *y, const int row_id, const int col_id, const int cols,
+    const LayerNormParamType<T> mean_val, const LayerNormParamType<T> invvar) {
+  using LoadT = phi::AlignedVector<T, VecSize>;
+  using StoreT = phi::AlignedVector<T, VecSize>;
+  using LoadU = phi::AlignedVector<U, VecSize>;
+  using LoadScaleOrBias =
+      phi::AlignedVector<LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX>,
+                         VecSize>;
+  for (int i = col_id * VecSize; i < cols; i += blockDim.x * VecSize) {
+    LoadScaleOrBias scale_vec;
+    LoadScaleOrBias bias_vec;
+    LoadT x_vec;
+#pragma unroll
+    for (int ii = 0; ii < VecSize; ii++) {
+      scale_vec[ii] =
+          static_cast<LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX>>(1);
+      bias_vec[ii] =
+          static_cast<LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX>>(0);
+    }
+    // vectorize load data from global
+    phi::Load<T, VecSize>(&x[row_id * cols + i], &x_vec);
+
+    if (scale != nullptr) {
+      phi::Load<LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX>, VecSize>(
+          &scale[i], &scale_vec);
+    }
+    if (bias != nullptr) {
+      phi::Load<LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX>, VecSize>(
+          &bias[i], &bias_vec);
+    }
+
+    // StoreT y_vec;
+    phi::AlignedVector<int8_t, VecSize> y_vec;
+    for (int ii = 0; ii < VecSize; ii++) {
+      y_vec[ii] =
+          static_cast<int8_t>(static_cast<U>(scale_vec[ii]) *
+                             (static_cast<U>(x_vec[ii]) - mean_val) * invvar +
+                         static_cast<U>(bias_vec[ii]));
+    }
+    phi::Store<int8_t, VecSize>(y_vec, &y[row_id * cols + i]);
+  }
+}
 /**
  * @brief layernorm(residual + dropout(src + bias));
  * @param
@@ -159,6 +206,64 @@ __global__ void FusedLayernormResidualDropoutBias(
 
 template <typename T, typename MaskType, int VecSize, typename U,
           bool ScaleBiasWithSameTypeX = false>
+__global__ void FusedLayernormResidualDropoutBiasInt8(
+    const size_t rows, const size_t cols, uint64_t seed,
+    const float dropout_prob, const bool is_upscale_in_train,
+    const bool is_test, const uint64_t increment, const float epsilon,
+    const T *src, const T *residual, const T *bias,
+    const LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX> *scale,
+    const LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX> *layernorm_bias,
+    MaskType *mask, T *dst, int8_t *layernorm_dst, LayerNormParamType<T> *mean,
+    LayerNormParamType<T> *var) {
+  int col_id = threadIdx.x;
+  int row_id = blockIdx.x;
+  int idx = row_id * cols + col_id;
+  curandStatePhilox4_32_10_t state;
+  curand_init(seed, idx, increment, &state);
+
+  T factor = GetFactor<T>(dropout_prob, is_upscale_in_train, is_test);
+
+  __shared__ U mean_share;
+  __shared__ U var_share;
+  __shared__ U shared_mean[32];
+  __shared__ U shared_var[32];
+
+  phi::funcs::ReluFunctor<T> relu;
+  U mean_val = 0;
+  U var_val = 0;
+  for (int i = col_id * VecSize; i < cols; i += blockDim.x * VecSize) {
+    FusedResidualDropoutBiasOneThread<T, MaskType, VecSize, true, false,
+                                      phi::funcs::ReluFunctor<T>>(
+        row_id, i, cols, &state, dropout_prob, factor, src, residual, bias, dst,
+        mask, is_test, &mean_val, &var_val, relu);
+  }
+
+  mean_val = BlockReduceSum<U>(mean_val, shared_mean);
+  var_val = BlockReduceSum<U>(var_val, shared_var);
+  if (threadIdx.x == 0) {
+    auto scale = static_cast<LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX>>(
+        static_cast<float>(1.) / static_cast<float>(cols));
+    auto tmp = mean_val * static_cast<U>(scale);
+//    mean[row_id] = mean_share = static_cast<U>(tmp);
+    var_share = static_cast<U>(var_val * static_cast<U>(scale) -
+                               mean_share * mean_share);
+    var_share = var_share > U(0) ? var_share : U(0);
+//    var[row_id] = var_share;
+  }
+  __syncthreads();
+
+  mean_val = mean_share;
+  U invvar = rsqrt_<U>(var_share + static_cast<U>(epsilon));
+
+  // calculate layernorm_dst
+  CalcLayernormYInt8<T, VecSize, U, ScaleBiasWithSameTypeX>(
+      scale, layernorm_bias, dst, layernorm_dst, row_id, col_id, cols, mean_val,
+      invvar);
+}
+
+
+template <typename T, typename MaskType, int VecSize, typename U,
+          bool ScaleBiasWithSameTypeX = false>
 struct FusedLayernormResidualDropoutBiasFunctor {
 
   void operator()(const size_t rows, const size_t cols, uint64_t seed,
@@ -181,6 +286,29 @@ struct FusedLayernormResidualDropoutBiasFunctor {
 
 template struct FusedLayernormResidualDropoutBiasFunctor<paddle::platform::float16, uint8_t, 8, float, false>;
 
+template <typename T, typename MaskType, int VecSize, typename U,
+          bool ScaleBiasWithSameTypeX = false>
+struct FusedLayernormResidualDropoutBiasInt8Functor {
+
+  void operator()(const size_t rows, const size_t cols, uint64_t seed,
+    const float dropout_prob, const bool is_upscale_in_train,
+    const bool is_test, const uint64_t increment, const float epsilon,
+    const T *src, const T *residual, const T *bias,
+    const LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX> *scale,
+    const LayerNormScaleBiasT<T, U, ScaleBiasWithSameTypeX> *layernorm_bias,
+    MaskType *mask, T *dst, int8_t *layernorm_dst, LayerNormParamType<T> *mean,
+    LayerNormParamType<T> *var, cudaStream_t stream) {
+    int blockDim = GetDesiredBlockDim(cols / VecSize);
+    FusedLayernormResidualDropoutBiasInt8<
+          T, MaskType, VecSize, U,
+          ScaleBiasWithSameTypeX><<<rows, blockDim, 0, stream>>>(
+          rows, cols, seed, dropout_prob, is_upscale_in_train, is_test,
+          increment, epsilon, src, residual, bias, scale, layernorm_bias,
+          mask, dst, layernorm_dst, mean, var);
+  }
+};
+
+template struct FusedLayernormResidualDropoutBiasInt8Functor<paddle::platform::float16, uint8_t, 8, float, false>;
 
 /*
 * @brief layernorm(residual + dropout(x));
