@@ -32,13 +32,14 @@ static const float kCT = 0.035677408136300125;  // 0.044715 * sqrt(2.0/M_PI)
 
 bool GeluPlugin::supportsFormat(
     nvinfer1::DataType type, nvinfer1::PluginFormat format) const TRT_NOEXCEPT {
+  // LOG(ERROR) << "supportsFormat enter " << static_cast<int>(format == nvinfer1::PluginFormat::kCHW32);
   if (with_fp16_) {
     return ((type == nvinfer1::DataType::kFLOAT ||
-             type == nvinfer1::DataType::kHALF) &&
-            (format == nvinfer1::PluginFormat::kLINEAR));
+             type == nvinfer1::DataType::kHALF || type == nvinfer1::DataType::kINT8) &&
+            (format == nvinfer1::PluginFormat::kLINEAR || format == nvinfer1::PluginFormat::kCHW32));
   } else {
     return ((type == nvinfer1::DataType::kFLOAT) &&
-            (format == nvinfer1::PluginFormat::kLINEAR));
+            (format == nvinfer1::PluginFormat::kLINEAR || format == nvinfer1::PluginFormat::kCHW32));
   }
 }
 
@@ -184,6 +185,7 @@ nvinfer1::DimsExprs GeluPluginDynamic::getOutputDimensions(
 bool GeluPluginDynamic::supportsFormatCombination(
     int pos, const nvinfer1::PluginTensorDesc* in_out, int nb_inputs,
     int nb_outputs) TRT_NOEXCEPT {
+  LOG(ERROR) << "supportsFormatCombination enter " << static_cast<int>(in_out[1].format == nvinfer1::TensorFormat::kCHW32);
   PADDLE_ENFORCE_NOT_NULL(
       in_out, platform::errors::InvalidArgument(
                   "The input of swish plugin shoule not be nullptr."));
@@ -197,20 +199,22 @@ bool GeluPluginDynamic::supportsFormatCombination(
 
   const nvinfer1::PluginTensorDesc& in = in_out[pos];
   if (pos == 0) {
-    if (with_fp16_) {
-      return (in.type == nvinfer1::DataType::kFLOAT ||
-              in.type == nvinfer1::DataType::kHALF) &&
+    return (in.type == nvinfer1::DataType::kINT8) &&
              (in.format == nvinfer1::TensorFormat::kLINEAR);
-    } else {
-      return (in.type == nvinfer1::DataType::kFLOAT) &&
-             (in.format == nvinfer1::TensorFormat::kLINEAR);
-    }
+    // if (with_fp16_) {
+    //   return (in.type == nvinfer1::DataType::kFLOAT ||
+    //           in.type == nvinfer1::DataType::kHALF) &&
+    //          (in.format == nvinfer1::TensorFormat::kLINEAR);
+    // } else {
+    //   return (in.type == nvinfer1::DataType::kFLOAT) &&
+    //          (in.format == nvinfer1::TensorFormat::kLINEAR);
+    // }
   }
   const nvinfer1::PluginTensorDesc& prev = in_out[pos - 1];
   // output
   // return in.type == prev.type && in.format == prev.format;
   // return true;
-  return in.format == nvinfer1::TensorFormat::kCHW32;
+  return in.type == nvinfer1::DataType::kINT8 && in.format == nvinfer1::TensorFormat::kCHW32;
   // return in.format == prev.format;
 }
 
@@ -235,6 +239,8 @@ int GeluPluginDynamic::enqueue(const nvinfer1::PluginTensorDesc* input_desc,
   const int block_size = 256;
   const int grid_size = (num + block_size - 1) / block_size;
 
+  // outputs[0]->setAllowedFormats(1U << static_cast<int>(nvinfer1::TensorFormat::kCHW32));
+  // output_desc[0].format = nvinfer1::TensorFormat::kCHW32;
   auto input_type = input_desc[0].type;
   if (input_type == nvinfer1::DataType::kFLOAT) {
     if (true){

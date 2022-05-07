@@ -193,6 +193,8 @@ class GeluOpConverter : public OpConverter {
         plugin::GeluPluginDynamic* plugin =
             new plugin::GeluPluginDynamic(with_fp16);
         layer = engine_->AddDynamicPlugin(&input, input_num, plugin);
+        layer->getOutput(0)->setAllowedFormats(1U << static_cast<int>(nvinfer1::TensorFormat::kCHW32));
+        layer->getOutput(0)->setType(nvinfer1::DataType::kINT8);
 #else
         PADDLE_THROW(platform::errors::Fatal(
             "You are running the TRT Dynamic Shape mode, need to confirm that "
