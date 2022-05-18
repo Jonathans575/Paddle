@@ -23,9 +23,12 @@ nv_library(tensorrt_converter
                 pool3d_op.cc
                 deformable_conv_op.cc
                 preln_emb_eltwise_layernorm.cc
+		strided_slice_op.cc
                 preln_skip_layernorm.cc
                 preln_residual_bias.cc
                 c_allreduce_op.cc
+		roll_op.cc
+                fused_token_prune_op.cc
            DEPS tensorrt_engine tensorrt_plugin operator scope framework_proto op_registry)
 
 nv_test(test_op_converter SRCS test_op_converter.cc DEPS
