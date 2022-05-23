@@ -215,6 +215,7 @@ int FusedTokenPrunePluginDynamic::enqueueImpl(
     T* attn_tmp_data, T* attn_by_data, int device_id) {
   auto attn_dims = input_desc[0].dims;
   auto x_dims = input_desc[1].dims;
+  auto mask_dims = input_desc[2].dims;
   auto new_mask_dims = input_desc[3].dims;
   auto bsz = attn_dims.d[0], nb_head = attn_dims.d[1],
        max_seq_len = attn_dims.d[2];
@@ -228,10 +229,21 @@ int FusedTokenPrunePluginDynamic::enqueueImpl(
   int total = bsz * nb_head * max_seq_len * max_seq_len;
   int block = operators::ComputeBlockSize(max_seq_len);
   int grid = operators::CeilDivide(total, block);
-
-  ElementwiseMask<T><<<grid, block, 0, stream>>>(
-      attn_data, mask_data, attn_tmp_data, grid, max_seq_len);
-  
+  std::cout << "attn data shape: "
+            << attn_dims.d[0] << " "<< attn_dims.d[1] << " "<< attn_dims.d[2] << " "<< attn_dims.d[3] << std::endl;
+  std::cout << "mask data shape: "
+            << mask_dims.d[0] << " "<< mask_dims.d[1] << " "<< mask_dims.d[2] << " "<< mask_dims.d[3] << std::endl;
+  std::cout << "ddddebug_token_prune bs: "
+          << bsz << " nb_head: " 
+          << nb_head << " max_seq_len: "
+          << max_seq_len << " hidden size: "
+          << c << " total: "
+          << total << " block: "
+          << block << " grid: "
+          << grid << std::endl;
+  // ElementwiseMask<T><<<grid, block, 0, stream>>>(
+  //     attn_data, mask_data, attn_tmp_data, grid, max_seq_len);
+  std::cout << "finish ElementwiseMask" << std::endl;
   total = bsz * max_seq_len; 
   block = max_seq_len;
   grid = operators::CeilDivide(total, block);
@@ -251,16 +263,17 @@ int FusedTokenPrunePluginDynamic::enqueueImpl(
   auto* attn_by_indices_data =
       attn_by_indices.mutable_data<int>(platform::CUDAPlace(device_id));
 
-  FillIndex<<<grid, block, 0, stream>>>(attn_by_indices_data, bsz, max_seq_len);
+  // FillIndex<<<grid, block, 0, stream>>>(attn_by_indices_data, bsz, max_seq_len);
 
-  SlicedArgsort<T><<<bsz, 1, 0, stream>>>(attn_by_data, attn_by_indices_data,
-                                          bsz, max_seq_len);
+  // SlicedArgsort<T><<<bsz, 1, 0, stream>>>(attn_by_data, attn_by_indices_data,
+  //                                         bsz, max_seq_len);
                                           
   int slimmed_x_len = new_mask_dims.d[2];
   block = operators::ComputeBlockSize(slimmed_x_len);
-  TakeAlongLastAxis2D<T><<<grid, block, 0, stream>>>(
-      x_data, output_data, attn_by_indices_data, bsz, max_seq_len,
-      slimmed_x_len, c);
+  // TakeAlongLastAxis2D<T><<<grid, block, 0, stream>>>(
+  //     x_data, output_data, attn_by_indices_data, bsz, max_seq_len,
+  //     slimmed_x_len, c);
+  std::cout << "finish fused prune op!!!" << std::endl;
   return cudaGetLastError() != cudaSuccess;
 }
 
@@ -279,7 +292,7 @@ int FusedTokenPrunePluginDynamic::enqueue(
   //   platform::DeviceContextPool::Instance().Get(
   //       platform::CUDAPlace(device_id)));
   // const platform::CUDADeviceContext& dev_ctx = *device_ctx;
-
+  
   if (input_type == nvinfer1::DataType::kFLOAT) {
     VLOG(1) << "TRT Plugin DataType selected. FusedTokenPrune-->fp32";
 

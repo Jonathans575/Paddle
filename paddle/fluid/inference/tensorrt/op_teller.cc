@@ -121,7 +121,7 @@ struct SimpleOpTypeSetTeller : public Teller {
       "fused_preln_embedding_eltwise_layernorm",
       "preln_skip_layernorm",
       "preln_residual_bias",
-      "c_allreduce_sum"
+      "c_allreduce_sum",
       "roll",
       // "preln_skip_layernorm",
       "fused_token_prune"};
