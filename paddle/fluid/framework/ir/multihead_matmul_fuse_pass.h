@@ -28,7 +28,7 @@ struct MultiHeadMatmulPattern : public PatternBase {
   MultiHeadMatmulPattern(PDPattern* pattern, const std::string& name_scope)
       : PatternBase(pattern, name_scope, "multihead_matmul") {}
 
-  PDNode* operator()();
+  void operator()(bool with_attention_output = false);
 
   // declare operator node's name
   PATTERN_DECL_NODE(input0);
@@ -167,6 +167,17 @@ class MultiHeadMatmulV2FusePass : public FusePassBase {
  private:
   int BuildFusionV2(Graph* graph, const std::string& name_scope,
                     Scope* scope) const;
+};
+
+class MultiHeadMatmulWithAttentionFusePass : public MultiHeadMatmulV2FusePass {
+ protected:
+  void ApplyImpl(Graph* graph) const;
+
+  const std::string name_scope_{"multihead_matmul_with_attention_fuse"};
+
+ private:
+  int BuildFusionWithAttention(Graph* graph, const std::string& name_scope,
+                               Scope* scope) const;
 };
 
 class MultiHeadMatmulV3FusePass : public FusePassBase {
