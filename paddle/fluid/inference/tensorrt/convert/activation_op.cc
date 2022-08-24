@@ -119,11 +119,36 @@ class ActivationOpConverter : public OpConverter {
               : 1.0f;
       layer->setAlpha(threshold);
     }
-#endif
+    // if (op_type_ == "silu") {
+    //   auto y = TRT_ENGINE_ADD_LAYER(engine_,
+    //                                 ElementWise,
+    //                                 *layer->getOutput(0),
+    //                                 *input_tensor,
+    //                                 nvinfer1::ElementWiseOperation::kPROD);
+    //   auto output_name = op_desc.Output("Out")[0];
 
+    //   RreplenishLayerAndOutput(y, op_type_, {output_name}, test_mode);
+    // }
+
+#endif
     auto output_name = op_desc.Output("Out")[0];
 
     RreplenishLayerAndOutput(layer, op_type_, {output_name}, test_mode);
+    // if (op_type_ == "silu") {
+    //   auto y = TRT_ENGINE_ADD_LAYER(engine_,
+    //                                 ElementWise,
+    //                                 *layer->getOutput(0),
+    //                                 *input_tensor,
+    //                                 nvinfer1::ElementWiseOperation::kPROD);
+    //   auto output_name = op_desc.Output("Out")[0];
+
+    //   RreplenishLayerAndOutput(y, op_type_, {output_name}, test_mode);
+    // } else {
+
+    //   auto output_name = op_desc.Output("Out")[0];
+
+    //   RreplenishLayerAndOutput(layer, op_type_, {output_name}, test_mode);
+    // }
   }
 
  protected:
@@ -143,6 +168,7 @@ const std::unordered_map<std::string, nvinfer1::ActivationType>
         {"softsign", nvinfer1::ActivationType::kSOFTSIGN},
         {"softplus", nvinfer1::ActivationType::kSOFTPLUS},
         {"stanh", nvinfer1::ActivationType::kSCALED_TANH},
+        {"silu", nvinfer1::ActivationType::kSIGMOID},
         {"thresholded_relu", nvinfer1::ActivationType::kTHRESHOLDED_RELU}};
 #endif
 
@@ -196,6 +222,12 @@ class ThreasholdedReluOpConverter : public ActivationOpConverter {
  public:
   ThreasholdedReluOpConverter() { op_type_ = "thresholded_relu"; }
 };
+
+// class SiluOpConverter : public ActivationOpConverter {
+//  public:
+//   SiluOpConverter() { op_type_ = "silu"; }
+// };
+
 #endif
 
 }  // namespace tensorrt
@@ -212,5 +244,6 @@ REGISTER_TRT_OP_CONVERTER(selu, SeluOpConverter);
 REGISTER_TRT_OP_CONVERTER(softsign, SoftsignOpConverter);
 REGISTER_TRT_OP_CONVERTER(softplus, SoftplusOpConverter);
 REGISTER_TRT_OP_CONVERTER(stanh, STanhOpConverter);
+// REGISTER_TRT_OP_CONVERTER(silu, SiluOpConverter);
 REGISTER_TRT_OP_CONVERTER(thresholded_relu, ThreasholdedReluOpConverter);
 #endif

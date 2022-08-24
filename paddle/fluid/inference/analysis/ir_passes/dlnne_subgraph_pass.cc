@@ -74,6 +74,7 @@ void analysis::DlnneSubgraphPass::ApplyImpl(framework::ir::Graph *graph) const {
       // "fc",
       "shuffle_channel",
       "swish",
+      "silu",
       "split",
       // "instance_norm",
       "gelu",
