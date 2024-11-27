@@ -31,6 +31,7 @@ from .dataloader import BatchSampler, IterableDataset, Subset
 from .dataloader.batch_sampler import _InfiniteIterableSampler
 from .dataloader.dataloader_iter import (
     _DataLoaderIterMultiProcess,
+    _DataLoaderIterMultiProcessWOBlockingQueue,
     _DataLoaderIterSingleProcess,
     _DatasetKind,
 )
@@ -399,6 +400,8 @@ class DataLoader:
         timeout=0,
         worker_init_fn=None,
         persistent_workers=False,
+        pin_memory=True,
+        use_blocking_queue=False,
     ):
         self.return_list = return_list
         self.collate_fn = collate_fn
@@ -487,10 +490,10 @@ class DataLoader:
         self.auto_collate_batch = self.batch_sampler is not None
 
         self.pin_memory = False
+        self._use_blocking_queue = True
         if in_dynamic_mode():
-            self.pin_memory = (
-                True if use_pinned_memory() is None else use_pinned_memory()
-            )
+            self.pin_memory = pin_memory
+            self._use_blocking_queue = use_blocking_queue
 
         self._persistent_workers = persistent_workers
         self._iterator = None
@@ -510,7 +513,12 @@ class DataLoader:
             return _DataLoaderIterSingleProcess(self)
         elif self._persistent_workers:
             if self._iterator is None:
-                self._iterator = _DataLoaderIterMultiProcess(self)
+                if self._use_blocking_queue:
+                    self._iterator = _DataLoaderIterMultiProcess(self)
+                else:
+                    self._iterator = _DataLoaderIterMultiProcessWOBlockingQueue(
+                        self
+                    )
             else:
                 self._iterator._reset()
             return self._iterator
