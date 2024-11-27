@@ -616,6 +616,7 @@ static PyObject* tensor_method__copy_to(TensorObject* self,
   paddle::Tensor cp_tensor;
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     cp_tensor = self->tensor.copy_to(place, blocking);
     if (!blocking) {
       IncreaseTensorReferenceCountUntilCopyComplete(self->tensor, place);
@@ -687,6 +688,7 @@ static PyObject* tensor_method_copy_(TensorObject* self,
           << self->tensor.name();
   if (!self->tensor.initialized()) {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     egr::EagerUtils::autograd_meta(&(self->tensor))
         ->SetStopGradient(
             egr::EagerUtils::autograd_meta(&(src_tensor))->StopGradient());
@@ -699,6 +701,7 @@ static PyObject* tensor_method_copy_(TensorObject* self,
   } else {
     if (src_tensor.initialized()) {
       eager_gil_scoped_release guard;
+      EagerSetDeviceId();
       self->tensor.copy_(src_tensor, self->tensor.place(), blocking);
     }
   }
@@ -763,6 +766,7 @@ static PyObject* tensor_method_clone(TensorObject* self,
   paddle::Tensor out;
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     PADDLE_ENFORCE_EQ(
         self->tensor.initialized(),
         true,
@@ -919,6 +923,7 @@ static PyObject* tensor_clear_gradient(TensorObject* self,
                   ->unsafe_mutable_value();
         }
         if (set_to_zero) {
+          EagerSetDeviceId();
           auto* dev_ctx =
               platform::DeviceContextPool::Instance().Get(grad_t->place());
           phi::funcs::set_constant(*dev_ctx, grad_t, 0.0);
@@ -949,6 +954,7 @@ static PyObject* tensor__zero_grads(TensorObject* self,
 
   if (egr::EagerUtils::IsLeafTensor(self->tensor)) {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     // Add RetainGrad as PostHook to AccumulationNode
     paddle::Tensor* grad = egr::EagerUtils::mutable_grad(self->tensor);
     PADDLE_ENFORCE(grad != nullptr,
@@ -973,6 +979,7 @@ static PyObject* tensor__zero_grads(TensorObject* self,
     }
   } else {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     auto meta = egr::EagerUtils::unsafe_autograd_meta(self->tensor);
     if (meta->MutableGrad()->initialized()) {
       if (meta->MutableGrad()->is_dense_tensor() ||
@@ -3023,6 +3030,7 @@ static PyObject* tensor_contiguous(TensorObject* self,
       return reinterpret_cast<PyObject*>(self);
     } else {
       eager_gil_scoped_release guard;
+      EagerSetDeviceId();
       *dense_tensor = paddle::experimental::Trans2Contiguous(*dense_tensor);
       Py_INCREF(self);
       return reinterpret_cast<PyObject*>(self);

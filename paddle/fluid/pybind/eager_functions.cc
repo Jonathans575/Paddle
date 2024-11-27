@@ -137,6 +137,7 @@ static PyObject* eager_api_scale(PyObject* self,
   paddle::Tensor ret;
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     ret = egr::scale(tensor, scale, bias, bias_after_scale, trace_backward);
   }
   return ToPyObject(ret);
@@ -157,6 +158,7 @@ static PyObject* eager_api_run_backward(PyObject* self,
   }
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     egr::Backward(tensors, grad_tensors, retain_graph);
   }
   RETURN_PY_NONE
@@ -187,6 +189,7 @@ static PyObject* eager_api_run_partial_grad(PyObject* self,
   std::vector<paddle::Tensor> result;
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     result = egr::Grad(tensors,
                        inputs,
                        grad_tensors,
@@ -214,6 +217,7 @@ static PyObject* eager_api_tensor_copy(PyObject* self,
 
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     dst = src.copy_to(place, blocking);
     egr::EagerUtils::autograd_meta(&dst)->SetStopGradient(
         egr::EagerUtils::autograd_meta(&(src))->StopGradient());
@@ -460,6 +464,7 @@ static PyObject* eager_api_jit_function_call(PyObject* self,
   std::vector<paddle::Tensor> outs;
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     outs = (*function)(ins);
   }
   return ToPyObject(outs);
@@ -668,6 +673,7 @@ static PyObject* eager_api_run_custom_op(PyObject* self,
 
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     ctx.ConstructInplaceIndex(inputs, outputs, inplace_map);
     const auto& inplace_reverse_idx_map = ctx.GetInplaceReverseIndexMap();
     for (size_t out_idx = 0; out_idx < outputs.size(); ++out_idx) {
@@ -912,6 +918,7 @@ static PyObject* eager_api_sparse_csr_tensor(PyObject* self,
   paddle::Tensor tensor;
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     PADDLE_ENFORCE(non_zero_crows.is_dense_tensor(),
                    paddle::platform::errors::Fatal(
                        "the compressed non-zero rows must be a DenseTensor."));
@@ -992,6 +999,7 @@ static PyObject* eager_api_async_read(PyObject* self,
 
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     PADDLE_ENFORCE_EQ(
         src.is_gpu_pinned(),
         true,
@@ -1170,6 +1178,7 @@ static PyObject* eager_api_async_write(PyObject* self,
   }
   {
     eager_gil_scoped_release guard;
+    EagerSetDeviceId();
     PADDLE_ENFORCE_EQ(
         src.is_gpu(),
         true,

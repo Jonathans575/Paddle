@@ -501,5 +501,7 @@ void ConvertAllInputsToDistTensor(const phi::distributed::ProcessMesh* mesh,
 void ConvertToDistTensor(Tensor* x, const phi::distributed::ProcessMesh* mesh);
 void BindEagerUtils(PyObject* module);
 
+void EagerSetDeviceId();
+
 }  // namespace pybind
 }  // namespace paddle
