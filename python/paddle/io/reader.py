@@ -523,7 +523,10 @@ class DataLoader:
                 self._iterator._reset()
             return self._iterator
         else:
-            return _DataLoaderIterMultiProcess(self)
+            if self._use_blocking_queue:
+                return _DataLoaderIterMultiProcess(self)
+            else:
+                return _DataLoaderIterMultiProcessWOBlockingQueue(self)
 
     def __call__(self):
         return self.__iter__()
