@@ -401,7 +401,7 @@ class DataLoader:
         worker_init_fn=None,
         persistent_workers=False,
         pin_memory=True,
-        use_blocking_queue=False,
+        use_blocking_queue=True,
     ):
         self.return_list = return_list
         self.collate_fn = collate_fn
