@@ -24,6 +24,7 @@ import numpy as np
 import paddle
 
 from ...framework import core
+from ...incubate.multiprocessing.reductions import ShmNPArray
 from ..multiprocess_utils import (
     MP_STATUS_CHECK_INTERVAL,
     CleanupFuncRegistrar,
@@ -394,7 +395,7 @@ def _worker_loop(
                 if use_shared_memory:
 
                     def numpy2lodtensor(arr):
-                        lodtensor = core.DenseTensor()
+                        lodtensor = core.Tensor()
                         lodtensor.set(arr, core.CPUPlace())
                         return lodtensor
 
@@ -406,6 +407,152 @@ def _worker_loop(
                         )
                         for b in batch
                     ]
+                    out_queue.put((idx, tensor_list, structure))
+                else:
+                    out_queue.put((idx, batch, structure))
+    except KeyboardInterrupt:
+        # NOTE: Main process will raise KeyboardInterrupt anyways, ignore it in child process
+        pass
+    except:
+        raise
+    finally:
+        if use_shared_memory:
+            _cleanup_mmap()
+    if done_event.is_set():
+        out_queue.cancel_join_thread()
+        out_queue.close()
+
+
+def _worker_loop_wo_blockingqueue(
+    dataset,
+    dataset_kind,
+    indices_queue,
+    out_queue,
+    done_event,
+    auto_collate_batch,
+    collate_fn,
+    drop_last,
+    init_fn,
+    worker_id,
+    num_workers,
+    use_shared_memory,
+    base_seed,
+    shm_cache_size=0,
+    smm=None,
+):
+    try:
+        # NOTE: [ mmap files clear ] When the child process exits unexpectedly,
+        # some shared memory objects may have been applied for but have not yet
+        # been put into the inter-process Queue. This part of the object needs
+        # to be cleaned up when the process ends.
+        CleanupFuncRegistrar.register(_cleanup_mmap)
+
+        # set signal handler
+        core._set_process_signal_handler()
+
+        core._set_max_memory_map_allocation_pool_size(shm_cache_size)
+
+        # set different numpy seed for each worker
+        try:
+            import random
+
+            import numpy as np
+        except ImportError:
+            pass
+        else:
+            seed = base_seed + worker_id
+            random.seed(seed)
+            paddle.seed(seed)
+            np.random.seed(_generate_states(base_seed, worker_id))
+
+        global _worker_info
+        _worker_info = WorkerInfo(
+            id=worker_id,
+            num_workers=num_workers,
+            dataset=dataset,
+            seed=base_seed,
+        )
+
+        init_exception = None
+        try:
+            if init_fn is not None:
+                init_fn(worker_id)
+            fetcher = _DatasetKind.create_fetcher(
+                dataset_kind, dataset, auto_collate_batch, collate_fn, drop_last
+            )
+        except:
+            init_exception = _WorkerException(worker_id)
+
+        iterator_drained = False
+        parent_watch_dog = ParentWatchDog()
+
+        while parent_watch_dog.is_alive():
+            # try:
+            data = indices_queue.get(MP_STATUS_CHECK_INTERVAL)
+            # except queue.Empty:
+            #     continue
+
+            if isinstance(data, _ResumeIteration):
+                out_queue.put((data, None, None))
+                iterator_drained = False
+                fetcher = _DatasetKind.create_fetcher(
+                    dataset_kind, dataset, auto_collate_batch, collate_fn, True
+                )
+                continue
+
+            # None as poison piil, so worker event should be set
+            if data is None:
+                assert (
+                    done_event.is_set() or iterator_drained
+                ), "get None when worker done_event set"
+                break
+            # If worker done event is set but get still get data in
+            # indices_queue, remaining data should be get and skipped.
+            if done_event.is_set() or iterator_drained:
+                continue
+
+            idx, indices = data
+            try:
+                if init_exception is not None:
+                    batch = init_exception
+                    init_exception = None
+                else:
+                    # NOTE: GPU tensor operation is not supported in sub-process
+                    #       but default device is GPU in paddle-gpu version, which
+                    #       may copy CPU tensor to GPU even if users want to use
+                    #       CPU tensor operation, so we add CPUPlace guard here
+                    #       to make sure tensor will be operated only on CPU
+                    with paddle.base.dygraph.guard(place=paddle.CPUPlace()):
+                        batch = fetcher.fetch(indices)
+            except Exception as e:
+                if (
+                    isinstance(e, StopIteration)
+                    and dataset_kind == _DatasetKind.ITER
+                ):
+                    out_queue.put(_IterableDatasetStopIteration(worker_id))
+                    iterator_drained = True
+                else:
+                    out_queue.put((idx, _WorkerException(worker_id), None))
+            else:
+                if isinstance(batch, _WorkerException):
+                    out_queue.put((idx, batch, None))
+                batch, structure = _flatten_batch(batch)
+                if use_shared_memory:
+
+                    def numpy2shm(arr):
+                        shm_arr = ShmNPArray()
+                        shm_arr.allocate_from_array(arr)
+                        return shm_arr
+
+                    tensor_list = [
+                        (
+                            numpy2shm(b)
+                            if isinstance(b, np.ndarray)
+                            else b.get_tensor()
+                        )
+                        for b in batch
+                    ]
+                    # print("put_data")
                     out_queue.put((idx, tensor_list, structure))
                 else:
                     out_queue.put((idx, batch, structure))

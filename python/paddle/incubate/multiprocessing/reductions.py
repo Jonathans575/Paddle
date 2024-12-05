@@ -21,8 +21,11 @@ import multiprocessing
 import sys
 import threading
 from collections import OrderedDict
+from multiprocessing import shared_memory
 from multiprocessing.reduction import ForkingPickler
 from multiprocessing.util import register_after_fork
+
+import numpy as np
 
 import paddle
 
@@ -183,7 +186,7 @@ def _rebuild_cuda_tensor(
         # you should manually maintain the lifecycle of ipc tensor
         shared_cache[(handle, offset_bytes)] = lodtensor
     else:
-        lodtensor = paddle.base.core.DenseTensor()
+        lodtensor = paddle.base.core.LoDTensor()
         lodtensor._share_buffer_with(
             cache_tensor, (size, type_idx, dims, lod, device_idx)
         )
@@ -232,6 +235,36 @@ def _reduce_lodtensor(lodtensor):
     return (rebuild, (type(lodtensor), *metadata))
 
 
+class ShmNPArray:
+    def allocate_from_array(self, arr):
+        shm = shared_memory.SharedMemory(create=True, size=arr.nbytes)
+        self.shm_arr = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)
+        self.shm_arr[:] = arr
+        self.shm_name = shm.name
+        self.shm = shm
+        # shm_arr = np.ndarray(arr.shape, dtype=arr.dtype, buffer=shm.buf)
+
+    # @staticmethod
+    def rebuild(self, shm_name, shape, dtype):
+        self.shm_name = shm_name
+        self.shm = shared_memory.SharedMemory(name=shm_name)
+        self.shm_arr = np.ndarray(shape, dtype=dtype, buffer=self.shm.buf)
+        # return self
+
+
+def _rebuild_shm_array(cls, shm_name, shape, dtype):
+    shm_arr = cls()
+    shm_arr.rebuild(shm_name, shape, dtype)
+    return shm_arr
+
+
+def _reduce_shm_array(arr):
+    return (
+        _rebuild_shm_array,
+        (type(arr), arr.shm_name, arr.shm_arr.shape, arr.shm_arr.dtype),
+    )
+
+
 def init_reductions() -> None:
     if not _supported_check():
         return
@@ -241,4 +274,5 @@ def init_reductions() -> None:
     ForkingPickler.register(
         paddle.base.framework.EagerParamBase, _reduce_tensor
     )
-    ForkingPickler.register(paddle.base.core.DenseTensor, _reduce_lodtensor)
+    ForkingPickler.register(paddle.base.core.LoDTensor, _reduce_lodtensor)
+    ForkingPickler.register(ShmNPArray, _reduce_shm_array)
